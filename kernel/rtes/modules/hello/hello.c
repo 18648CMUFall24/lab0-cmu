@@ -5,6 +5,15 @@
  * device prints the following to the kernel log:
  *
  * Hello, world! Kernel-space -- the land of the free and the home of the brave.
+ *
+ * Commands:
+ * Make
+ *      a) Using make: `~/lab0-cmu/kernel/rtes/modules/hello$ make`
+ *      b) Using make M=: `~/lab0-cmu$ make M=kernel/rtes/modules/hello`
+ *
+ * Run (on target device)
+ *      root# insmod ./hello.ko
+ *      root# rmmod hello
  */
 
 #include <linux/init.h>
