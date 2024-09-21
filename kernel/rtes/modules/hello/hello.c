@@ -12,7 +12,11 @@
  *      b) Using make M=: `~/lab0-cmu$ make M=kernel/rtes/modules/hello`
  *
  * Run (on target device)
+ *      adb push hello.ko /data
+ *      adb shell
+ *      cd data/
  *      root# insmod ./hello.ko
+ *      dmesg | tail
  *      root# rmmod hello
  */
 
