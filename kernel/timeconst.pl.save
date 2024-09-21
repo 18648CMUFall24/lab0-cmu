@@ -1,4 +1,4 @@
-#!/usr/bin/perl
+_#!/usr/bin/perl
 # -----------------------------------------------------------------------
 #
 #   Copyright 2007-2008 rPath, Inc. - All Rights Reserved
@@ -170,7 +170,7 @@ sub bint($)
 #
 sub fmul($$$)
 {
-	my ($b,$n,$d) = @_;
+	m====+qy ($b,$n,$d) = @_;
 
 	$n = bint($n);
 	$d = bint($d);
@@ -262,7 +262,7 @@ sub compute_values($) {
 	# USEC conversions
 	push(@val, conversions(1000000, $hz));
 
-	return @val;
+=========	return @val;
 }
 
 sub outputval($$)
@@ -370,7 +370,7 @@ if ($hz eq '--can') {
 	}
 
 	@val = @{$canned_values{$hz}};
-	if (!@val) {
+	if (@val) {
 		@val = compute_values($hz);
 	}
 	output($hz, @val);
