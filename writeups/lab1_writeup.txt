@@ -1,0 +1,29 @@
+1. How does a system call execute? Explain the steps in detail from making the call in the
+userspace process to returning from the call with a result.
+i. User-space processes initiate systemcall requests such as read().
+ii. User app interrupted, switching from user mode to kernel mode, for example by int 0x80.
+iii. Executing kernel code based on the system call, for example, reads specific amount of bytes from file system and store.
+     into user space buffer.
+iv. Prepare return values (restore user space states like registers)
+v. Switching context to user space.
+vi. User-space processes resume.
+
+2. Define re-entrancy and thread-safety
+Re-entrancy refers to the ability that a function or subroutine can be interrupted during execution and resumed safely (re-enter) before finishing.
+And thread-safety refers to the property that a function of a block of code can be accessed concurrently by multiple threads and is logically correct.
+
+3. What does it mean for a kernel to be preemptive? Is the Linux kernel you are hacking on
+preemptive?
+It means a kernel allows other tasks, for example higher priority ones can interrupt current task during execution or vice versa.
+Yes (maybe, tbd)
+
+4. When does access to data structures in userspace need to be synchronized?
+When multiple threads or processes are concurrently accessing and potentially modify the same data.
+
+5. What synchronization mechanism can be used to access shared kernel data structures safely
+on both single- and multi-processor platforms?
+Spinlocks, mutexes, read-write locks, etc.
+
+6. What is the container of macro used for in the kernel code? In rough terms, how is it
+implemented?
+It casts a member of a structure out to the containing structure.
