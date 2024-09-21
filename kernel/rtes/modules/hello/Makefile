@@ -1,2 +1,2 @@
 all:
-	make -C ../.. M=$(PWD)
+	make -C ../../../../ M=$(PWD)
