@@ -8,16 +8,16 @@
  * check its output.
  * 
  * Commands:
- * make
- * adb push hello /data/local/tmp
- * adb shell
- * cd /data/local/tmp
- * (chmod +x hello)
- * ./hello
+ *      make
+ *      adb push hello /data/local/tmp
+ *      adb shell
+ *      cd /data/local/tmp
+ *      (chmod +x hello)
+ *      ./hello
  * 
  */
 
-// since it is a user-space application, we include stdio.h
+// since it is a user-space application, include stdio.h
 #include <stdio.h>
 
 int main() {

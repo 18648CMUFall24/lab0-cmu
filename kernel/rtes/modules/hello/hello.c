@@ -8,6 +8,8 @@
  *
  * Commands:
  * Make
+ *      before running make, set CROSS_COMPILE and ARCH environment variables
+ *      $ export CROSS_COMPILE=arm-linux-gnueabi- ARCH=arm
  *      a) Using make: `~/lab0-cmu/kernel/rtes/modules/hello$ make`
  *      b) Using make M=: `~/lab0-cmu$ make M=kernel/rtes/modules/hello`
  *
