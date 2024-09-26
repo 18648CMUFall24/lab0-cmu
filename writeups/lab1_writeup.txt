@@ -27,3 +27,8 @@ Spinlocks, mutexes, read-write locks, etc.
 6. What is the container of macro used for in the kernel code? In rough terms, how is it
 implemented?
 It casts a member of a structure out to the containing structure.
+For example, this is useful in the open() function when we need the scull_dev structure, but we have the inode, 
+which has cdev in its i_cdev field. Knowing that scull_dev contains cdev, we can use container_of to get the scull_dev structure.
+In other words, it is used to get the parent structure from a member of the structure.
+The function definition is `container_of(pointer, container_type, container_field);`
+And an example usage from scull is `dev = container_of(inode->i_cdev, struct scull_dev, cdev);`
