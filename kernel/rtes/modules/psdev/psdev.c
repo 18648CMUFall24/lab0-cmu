@@ -1,208 +1,254 @@
 /**
- * 4.4  Character Device Driver (15 points)
- * SOURCE-CODE-LOCATION: kernel/rtes/modules/psdev/psdev.c
- * Create a moudle with a device that when read will output a list of
- * real-time threads with their thread ID, process IDs, real-time priority,
- * and command name. Reading from your device with e.g. cat /dev/psdev should
- * print the list of real-time threads.
- * 
- *  tid  pid  prio  command
- *  102  102   90    adbd
- *  103  103   80    pigz
- *  104  103   80    pigz
- * 
- * The user should bbe able to create and use MULTIPLE, INDEPENDENT instances.
- * The number of file descriptors that can be associated with one devices instace 
- * should be limited to one. When the limit is exceeded, the "open" system call must
- * fail with EBUSY. Operations that are part of the file abstraction, but do not make
- * sense for the device, should fail with ENOTSUPP. As with any file, the user
- * should be able to read the contents in chunks over multiple read operations.
- * NOTE: The file abstraction allows the user to issue concurrent reads on the same
- * file descriptor.
- * 
- * Commands:
- *     a) Using make: `~/lab0-cmu/kernel/rtes/modules/psdev$ make`
- *     b) Using make M=: `~/lab0-cmu$ make M=kernel/rtes/modules/psdev`
- * 
+ * ./rc.local
+ * References: https://lwn.net/Kernel/LDD3/ Chapters 3 and 6
  */
-#include <linux/init.h>
-#include <linux/module.h>
-#include <linux/kernel.h>
 #include <linux/fs.h>
-#include <linux/cdev.h>
-#include <linux/uaccess.h>
-#include <linux/sched.h>
-#include <linux/mutex.h>
-#include <linux/device.h>
 #include <linux/kdev_t.h>
+#include <linux/module.h>
+#include <linux/cdev.h>
+#include <linux/kernel.h>
 #include <linux/slab.h>
-#include <linux/err.h>
 #include <linux/types.h>
-#include <linux/signal.h>
+#include <linux/spinlock.h>
 
+// Global variables
+int psdev_major;
+int psdev_minor = 0;
+// Initialize spinlock
+DEFINE_SPINLOCK(psdev_u_lock);
+int psdev_u_count;
+int psdev_u_owner;
+struct file_operations psdev_fops; // function defined at end
 
-MODULE_LICENSE("Dual BSD/GPL");
-
-#define DEVICE_NAME "psdev"     
-#define MAX_DEVICE_INSTANCES 5   /* Max number of minor device */
-#define MAX_BUFFER_SIZE 1024     /* Max buffer size for device */
-
-/* device informatino register */
-struct psdev_data {
-    struct cdev cdev;       /* Character device structure*/
-    struct mutex mutex;     /* Mutex for device */
-    int is_open;            /* Device is open */ 
-    char *data;             /* Data buffer to store ouptup */ 
-    size_t data_size;       /* Size of output data */
+/**
+ * @brief Device registration that represents the device
+ */
+struct psdev_dev
+{
+    struct psdev_qset *data; /* Pointer to first quantum set (aka memory) */
+    int quantum;             /* the current quantum size. each memory area is a quantum and the array (or its length) a quantum set. */
+    int qset;                /* the current array size */
+    unsigned long size;      /* amount of data stored here */
+    unsigned int access_key; /* used by psdevuid and psdevpriv */
+    struct semaphore sem;    /* mutual exclusion semaphore */
+    struct cdev cdev;        /* Char device structure */
 };
 
-static int psdev_open(struct inode *inode, struct file *filp);
-static int psdev_release(struct inode *inode, struct file *filp);
-static ssize_t psdev_read(struct file *filp, char __user *buf, size_t count, loff_t *f_pos);
-static long psdev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg);
-static void gather_rt_thread_info(struct psdev_data *dev);
+/**
+ * @brief Dynamically allocate a major number
+ */
+int alloc_major_version(void)
+{
+    dev_t dev;
+    unsigned int firstminor = 0; // requested first minor number to use; it is usually 0
+    unsigned int count = 4;      // total number of contiguous device numbers you are requesting
 
-/* initialize file operations */
-static const struct file_operations psdev_fops = {
+    // dynamically-allocate device numbers
+    int result = alloc_chrdev_region(&dev, firstminor, count, "psdev");
+    // MAJOR extracts the major from a device number.
+    psdev_major = MAJOR(dev);
+    if (result < 0)
+    {
+        printk(KERN_WARNING "psdev: can't get major %d\n", psdev_major);
+        return result;
+    }
+    return 0; // success
+}
+
+/**
+ * @brief Register the device with the kernel
+ */
+static void psdev_setup_cdev(struct psdev_dev *dev, int index)
+{
+    // MKDEV: takes major and minor numbers and turns it into a dev_t,
+    int err, devno = MKDEV(psdev_major, psdev_minor + index);
+    // embed the cdev structure within a device-specific structure
+    cdev_init(&dev->cdev, &psdev_fops);
+    dev->cdev.owner = THIS_MODULE;
+    dev->cdev.ops = &psdev_fops;
+    // Add the device to the kernel
+    err = cdev_add(&dev->cdev, devno, 1);
+
+    /* Fail gracefully if need be */
+    if (err)
+        printk(KERN_NOTICE "Error %d adding psdev%d", err, index);
+}
+
+/**
+ * @brief Initialize the device on open
+ */
+int psdev_open(struct inode *inode, struct file *filp)
+{
+    // Use spinlock to only allow one user to open the device per file
+    spin_lock(&psdev_u_lock);
+    if (psdev_u_count &&
+        (psdev_u_owner != current->uid) &&  /* allow user */
+        (psdev_u_owner != current->euid) && /* allow whoever did su */
+        !capable(CAP_DAC_OVERRIDE))
+    { /* still allow root */
+        spin_unlock(&psdev_u_lock);
+        return -EBUSY; /* -EPERM would confuse the user */
+    }
+    if (psdev_u_count == 0)
+        psdev_u_owner = current->uid; /* grab it */
+    psdev_u_count++;
+    spin_unlock(&psdev_u_lock);
+
+    struct psdev_dev *dev; /* device information */
+    // Container_of returns a pointer to the structure that contains the cdev structure
+    dev = container_of(inode->i_cdev, struct psdev_dev, cdev);
+    filp->private_data = dev; /* for other methods */
+
+    /* now trim to 0 the length of the device if open was write-only */
+    if ((filp->f_flags & O_ACCMODE) == O_WRONLY)
+    {
+        printk(KERN_INFO "INSIDE OPEN");
+    }
+    return 0; /* success */
+}
+
+/**
+ * @brief Release the device
+ * Only one release call for each open
+ * Not every close system call causes the release method to be invoked
+ */
+int psdev_release(struct inode *inode, struct file *filp)
+{
+    spin_lock(&psdev_u_lock);
+    psdev_u_count--; /* nothing else */
+    spin_unlock(&psdev_u_lock);
+    return 0;
+}
+
+// int psdev_trim(struct psdev_dev *dev)
+// {
+//     struct psdev_qset *next, *dptr;
+//     int qset = dev->qset;
+//     int i; /* "dev" is not-null */
+//     for (dptr = dev->data; dptr; dptr = next)
+//     { /* all the list items */
+//         if (dptr->data)
+//         {
+//             for (i = 0; i < qset; i++)
+//                 kfree(dptr->data[i]);
+//             kfree(dptr->data);
+//             dptr->data = NULL;
+//         }
+//         next = dptr->next;
+//         kfree(dptr);
+//     }
+//     dev->size = 0;
+//     dev->quantum = psdev_quantum;
+//     dev->qset = psdev_qset;
+//     dev->data = NULL;
+//     return 0;
+// }
+
+// ssize_t psdev_read(struct file *filp, char __user *buf, size_t count,
+//                    loff_t *f_pos)
+// {
+//     struct psdev_dev *dev = filp->private_data;
+//     struct psdev_qset *dptr; /* the first listitem */
+//     int quantum = dev->quantum, qset = dev->qset;
+//     int itemsize = quantum * qset; /* how many bytes in the listitem */
+//     int item, s_pos, q_pos, rest;
+//     ssize_t retval = 0;
+//     if (down_interruptible(&dev->sem))
+//         return -ERESTARTSYS;
+//     if (*f_pos >= dev->size)
+//         goto out;
+//     if (*f_pos + count > dev->size)
+//         count = dev->size - *f_pos;
+//     /* find listitem, qset index, and offset in the quantum */
+//     item = (long)*f_pos / itemsize;
+//     rest = (long)*f_pos % itemsize;
+//     s_pos = rest / quantum;
+//     q_pos = rest % quantum;
+//     /* follow the list up to the right position (defined elsewhere) */
+//     dptr = psdev_follow(dev, item);
+//     if (dptr == NULL || !dptr->data || !dptr->data[s_pos])
+//         goto out; /* don't fill holes */
+//     /* read only up to the end of this quantum */
+//     if (count > quantum - q_pos)
+//         count = quantum - q_pos;
+//     if (copy_to_user(buf, dptr->data[s_pos] + q_pos, count))
+//     {
+//         retval = -EFAULT;
+//         goto out;
+//     }
+//     *f_pos += count;
+//     retval = count;
+// out:
+//     up(&dev->sem);
+//     return retval;
+// }
+
+// ssize_t psdev_write(struct file *filp, const char __user *buf, size_t count,
+//                     loff_t *f_pos) struct psdev_dev *dev = filp -> private_data;
+// {
+//     struct psdev_qset *dptr;
+//     int quantum = dev->quantum, qset = dev->qset;
+//     int itemsize = quantum * qset;
+//     int item, s_pos, q_pos, rest;
+//     ssize_t retval = -ENOMEM; /* value used in "goto out" statements */
+//     if (down_interruptible(&dev->sem))
+//         return -ERESTARTSYS;
+//     /* find listitem, qset index and offset in the quantum */
+//     item = (long)*f_pos / itemsize;
+//     rest = (long)*f_pos % itemsize;
+//     s_pos = rest / quantum;
+//     q_pos = rest % quantum;
+//     /* follow the list up to the right position */
+//     dptr = psdev_follow(dev, item);
+//     if (dptr == NULL)
+//         goto out;
+//     if (!dptr->data)
+//     {
+//         dptr->data = kmalloc(qset * sizeof(char *), GFP_KERNEL);
+//         if (!dptr->data)
+//             goto out;
+//         memset(dptr->data, 0, qset * sizeof(char *));
+//     }
+//     if (!dptr->data[s_pos])
+//     {
+//         dptr->data[s_pos] = kmalloc(quantum, GFP_KERNEL);
+//         if (!dptr->data[s_pos])
+//             goto out;
+//     }
+//     /* write only up to the end of this quantum */
+//     if (count > quantum - q_pos)
+//         count = quantum - q_pos;
+//     if (copy_from_user(dptr->data[s_pos] + q_pos, buf, count))
+//     {
+//         retval = -EFAULT;
+//         goto out;
+//     }
+//     *f_pos += count;
+//     retval = count;
+//     /* update the size */
+//     if (dev->size < *f_pos)
+//         dev->size = *f_pos;
+// out:
+//     up(&dev->sem);
+//     return retval;
+// }
+
+/**
+ * @brief File Operations
+ */
+struct file_operations psdev_fops = {
     .owner = THIS_MODULE,
-    .read = psdev_read,
+    // .llseek = psdev_llseek,
+    // .read = psdev_read,
+    // .write = psdev_write,
+    // .ioctl = psdev_ioctl,
     .open = psdev_open,
-    .release = psdev_release,
-    .unlocked_ioctl = psdev_ioctl,
-};
+    .release = psdev_release};
 
-static int psdev_major;
-
-static struct psdev_data mypsdev_data[MAX_DEVICE_INSTANCES];
-
-static int psdev_open(struct inode *inode, struct file *filp) 
+int main(void)
 {
-    struct psdev_data *psdev;
-    psdev = container_of(inode->i_cdev, struct psdev_data, cdev);
-
-    if (psdev->is_open) {
-        mutex_unlock(&psdev->mutex);
-        return -EBUSY;                  /* access limit is exceeded */    
-    }
-
-    psdev->is_open = 1;
-    filp->private_data = psdev;
-
-    psdev->data = kmalloc(MAX_BUFFER_SIZE, GFP_KERNEL);
-    if(!psdev->data) {
-        psdev->is_open = 0;
-        mutex_unlock(&psdev->mutex);
-        return -ENOMEM;                 /* memory allocation fail */
-    }
-    
-    memset(psdev->data, 0, MAX_BUFFER_SIZE);
-    // print rt thread info here
-    gather_rt_thread_info(psdev);
-    mutex_unlock(&psdev->mutex);
+    struct psdev_dev dev;
+    alloc_major_version();
+    psdev_setup_cdev(&dev, 0);
     return 0;
 }
-
-static int psdev_release(struct inode *inode, struct file *filp) 
-{
-    struct psdev_data *psdev = filp->private_data;
-
-    kfree(psdev->data);
-    psdev->is_open = 0;
-    mutex_unlock(&psdev->mutex);
-
-    return 0;
-}
-
-static ssize_t psdev_read(struct file *filp, char __user *buf, size_t count, loff_t *f_pos) {
-    struct psdev_data *psdev = filp->private_data;
-    ssize_t retval = 0;
-
-    if (*f_pos >= psdev->data_size) {
-        return 0;       // EOF
-    }
-
-    retval = min(count, (size_t)(psdev->data_size - *f_pos));
-    if (copy_to_user(buf, psdev->data + *f_pos, retval)) {  /* print to user space */
-        return -EFAULT;
-    }
-
-    *f_pos += retval;
-    return retval;
-}
-
-static long psdev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg) {
-    return -ENOTSUPP; // Operation not supported
-}
-
-static int __init psdev_init(void) {
-    int err, i;
-    dev_t psdev;
-
-    err = alloc_chrdev_region(&psdev, 0, MAX_DEVICE_INSTANCES, "psdev");
-
-    if (err < 0) {
-        printk(KERN_WARNING "Failed to get major\n");
-        return err;
-    }
-
-    psdev_major = MAJOR(psdev);
-
-    for (i = 0; i < MAX_DEVICE_INSTANCES; i++) {
-        cdev_init(&mypsdev_data[i].cdev, &psdev_fops);
-        mypsdev_data[i].cdev.owner = THIS_MODULE;
-        mypsdev_data[i].is_open = 0;
-        mutex_init(&mypsdev_data[i].mutex);
-
-        err = cdev_add(&mypsdev_data[i].cdev, MKDEV(psdev_major, i), 1);
-
-        if (err) {
-            printk(KERN_NOTICE "Error %d adding psdev%d", err, i);
-            return err;
-        }
-    }
-    printk(KERN_INFO "psdev: registered with major number %d\n", psdev_major);
-    return 0;
-}   
-
-static void __exit psdev_exit(void) {
-    int i = 0;
-
-    for (i = 0; i < MAX_DEVICE_INSTANCES; i++) {
-        cdev_del(&mypsdev_data[i].cdev);
-    }
-
-    unregister_chrdev_region(MKDEV(psdev_major, 0), MAX_DEVICE_INSTANCES);
-    printk(KERN_INFO "psdev: unregistered devices\n");
-}
-
-static void gather_rt_thread_info(struct psdev_data *dev) {
-    struct task_struct *task;
-    struct task_struct *t;
-    size_t offset = 0;
-
-    rcu_read_lock(); // start a read-side critical section
-    for_each_process(task) {
-        list_for_each_entry(t, &task->thread_group, thread_group) {
-            if (t->prio < MAX_RT_PRIO) {
-                offset += snprintf(dev->data + offset, MAX_BUFFER_SIZE - offset,
-                                   "tid: %d\npid: %d\npr: %d\nname: %s\n",
-                                   t->pid, task->tgid, t->rt_priority, t->comm);
-
-                // Check if buffer size is exceeded
-                if (offset >= MAX_BUFFER_SIZE) {
-                    printk(KERN_WARNING "psdev: Buffer size exceeded\n");
-                    rcu_read_unlock();
-                    dev->data_size = offset; // Update data size
-                    return;
-                }
-            }
-        }
-    }
-    rcu_read_unlock(); // End the read-side critical section
-
-    dev->data_size = offset; // Set the size of the collected data
-}
-
-
-module_init(psdev_init);
-module_exit(psdev_exit);
