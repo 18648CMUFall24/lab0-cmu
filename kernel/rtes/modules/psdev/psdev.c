@@ -189,7 +189,7 @@ static void gather_rt_thread_info(struct psdev_data *dev) {
 
     rcu_read_lock(); // Start the read-side critical section
     offset += snprintf(dev->data + offset, MAX_BUFFER_SIZE - offset, 
-                       "%6s %6s %4s %s\n", "tid", "pid", "pr", "name");
+                       "%6s %6s %6s %8s\n", "tid", "pid", "pr", "name");
 
     for_each_process(task) {
         t = task;
