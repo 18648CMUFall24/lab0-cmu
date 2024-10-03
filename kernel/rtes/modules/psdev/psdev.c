@@ -38,8 +38,9 @@
 #include <linux/slab.h>
 #include <linux/err.h>
 #include <linux/types.h>
-#include <linux/signal.h>
-
+#include <linux/rwlock.h>
+#include <asm/errno.h>
+#include <linux/rcupdate.h>
 
 MODULE_LICENSE("Dual BSD/GPL");
 
@@ -71,14 +72,17 @@ static const struct file_operations psdev_fops = {
     .unlocked_ioctl = psdev_ioctl,
 };
 
-static int psdev_major;
+static int psdev_major;     // stores major number
 
-static struct psdev_data mypsdev_data[MAX_DEVICE_INSTANCES];
+static struct psdev_data mypsdev_data[MAX_DEVICE_INSTANCES];    // for each device instance
 
+
+// open device: lock, check if device is open, allocate memory, gather rt thread info, unlock
 static int psdev_open(struct inode *inode, struct file *filp) 
 {
     struct psdev_data *psdev;
     psdev = container_of(inode->i_cdev, struct psdev_data, cdev);
+    mutex_lock(&psdev->mutex);
 
     if (psdev->is_open) {
         mutex_unlock(&psdev->mutex);
@@ -102,10 +106,11 @@ static int psdev_open(struct inode *inode, struct file *filp)
     return 0;
 }
 
+// close device: lock, free memory, unset flag, unlock
 static int psdev_release(struct inode *inode, struct file *filp) 
 {
     struct psdev_data *psdev = filp->private_data;
-
+    mutex_lock(&psdev->mutex);
     kfree(psdev->data);
     psdev->is_open = 0;
     mutex_unlock(&psdev->mutex);
@@ -113,9 +118,10 @@ static int psdev_release(struct inode *inode, struct file *filp)
     return 0;
 }
 
+// read device: lock, copy data to user space, updata file position, unlock
 static ssize_t psdev_read(struct file *filp, char __user *buf, size_t count, loff_t *f_pos) {
     struct psdev_data *psdev = filp->private_data;
-    ssize_t retval = 0;
+    ssize_t retval = 0; // how much data to read
 
     if (*f_pos >= psdev->data_size) {
         return 0;       // EOF
@@ -134,6 +140,7 @@ static long psdev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg) 
     return -ENOTSUPP; // Operation not supported
 }
 
+// alloc major and minor number, iinitilize devices, and register device to kernel
 static int __init psdev_init(void) {
     int err, i;
     dev_t psdev;
@@ -176,33 +183,44 @@ static void __exit psdev_exit(void) {
 }
 
 static void gather_rt_thread_info(struct psdev_data *dev) {
-    struct task_struct *task;
-    struct task_struct *t;
+    struct task_struct *task, *t;       // task handle process,  t handle thread
     size_t offset = 0;
+    int buffer_flag = 0;
 
-    rcu_read_lock(); // start a read-side critical section
+    rcu_read_lock(); // Start the read-side critical section
+    offset += snprintf(dev->data + offset, MAX_BUFFER_SIZE - offset, 
+                       "%6s %6s %4s %s\n", "tid", "pid", "pr", "name");
+
     for_each_process(task) {
-        list_for_each_entry(t, &task->thread_group, thread_group) {
-            if (t->prio < MAX_RT_PRIO) {
-                offset += snprintf(dev->data + offset, MAX_BUFFER_SIZE - offset,
-                                   "tid: %d\npid: %d\npr: %d\nname: %s\n",
-                                   t->pid, task->tgid, t->rt_priority, t->comm);
+        t = task;
 
-                // Check if buffer size is exceeded
+        while(1) {
+            if (t->rt_priority > 0) {       // only print real-time threads
+                offset += snprintf(dev->data + offset, MAX_BUFFER_SIZE - offset,
+                                   "%6d  %6d   %4d   %s\n",
+                                   t->pid, task->tgid, t->rt_priority, t->comm);
+                
                 if (offset >= MAX_BUFFER_SIZE) {
                     printk(KERN_WARNING "psdev: Buffer size exceeded\n");
-                    rcu_read_unlock();
-                    dev->data_size = offset; // Update data size
-                    return;
+                    buffer_flag = 1;
+                    break;
                 }
             }
+
+            t = next_thread(t);
+            if (t == task) {
+                break;
+            }
+        }
+
+        if (buffer_flag) {
+            break;
         }
     }
-    rcu_read_unlock(); // End the read-side critical section
 
-    dev->data_size = offset; // Set the size of the collected data
+    rcu_read_unlock(); // End the read-side critical section 
+    dev->data_size = offset;       
 }
-
-
+    
 module_init(psdev_init);
 module_exit(psdev_exit);
