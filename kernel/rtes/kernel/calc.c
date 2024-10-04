@@ -108,7 +108,7 @@ asmlinkage int sys_calc(const char *param1, const char *param2, char operation, 
     {
         if (num2 == 0)
             return -1;
-        res = (a << FRACTION_BITS) / b;
+        res = (num1 << FRACTION_BITS) / num2;
     }
     else
     {
@@ -123,7 +123,7 @@ asmlinkage int sys_calc(const char *param1, const char *param2, char operation, 
     int_part = res >> FRACTION_BITS;
     frac_part = ((res & (FRACTION_SCALE - 1)) * 1000000) >> FRACTION_BITS;
 
-    if (snprintf(result, BUFFER_SIZE, "%s%lld.%06lld", is_neg ? "-" : "", int_part, frac_part) < 0)
+    if (snprintf(result, BUFFER_SIZE, "%s%ld.%06ld", is_neg ? "-" : "", int_part, frac_part) < 0)
     {
         return -1; // error
     }
