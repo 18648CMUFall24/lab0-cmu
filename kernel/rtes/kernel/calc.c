@@ -1,8 +1,53 @@
 #include <linux/kernel.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <linux/string.h>
 
 #define BUFFER_SIZE 16
+#define FRACTION_BITS 16
+#define FRACTION_SCALE (1 << FRACTION_BITS)
+
+typedef long fixed_point_t;
+
+/**
+ * Convert a string to a fixed-point number
+ */
+fixed_point_t str_to_fixed_point(const char *str)
+{
+    long int_part = 0;
+    long frac_part = 0;
+    int is_neg = 0;
+    int i = 0;
+
+    // Check if number is negative
+    if (str[0] == '-')
+    {
+        is_neg = 1;
+        i++;
+    }
+
+    // Parse integer part
+    while (str[i] != '.' && str[i] != '\0')
+    {
+        int_part = int_part * 10 + (str[i] - '0');
+        i++;
+    }
+
+    // Parse fractional part
+    if (str[i] == '.')
+    {
+        i++;
+        long multiplier = FRACTION_SCALE / 10;
+        while (str[i] != '\0' && multiplier > 0)
+        {
+            frac_part += (str[i] - '0') * multiplier;
+            multiplier /= 10;
+            i++;
+        }
+    }
+    fixed_point_t fixed_point = (int_part << FRACTION_BITS) + frac_part;
+    return is_neg ? -fixed_point : fixed_point;
+}
 
 /**
  * Write a calculator system call (5 points)
@@ -39,8 +84,8 @@ asmlinkage int sys_calc(const char *param1, const char *param2, char operation, 
         return -EINVAL;
 
     // Convert param1 and param2 to float
-    float num1 = atof(param1);
-    float num2 = atof(param2);
+    fixed_point_t num1 = str_to_fixed_point(param1);
+    fixed_point_t num2 = str_to_fixed_point(param2);
 
     // Perform operation
     if (operation == '-')
@@ -53,13 +98,13 @@ asmlinkage int sys_calc(const char *param1, const char *param2, char operation, 
     }
     else if (operation == '*')
     {
-        res = num1 * num2;
+        res = (a * b) >> FRACTION_BITS;
     }
     else if (operation == '/')
     {
         if (num2 == 0)
             return -1;
-        res = num1 / num2;
+        res = (a << FRACTION_BITS) / b;
     }
     else
     {
@@ -67,10 +112,16 @@ asmlinkage int sys_calc(const char *param1, const char *param2, char operation, 
     }
 
     // Write result to buffer, with 4 decimal places
-    if (snprintf(result, BUFFER_SIZE, "%.4f", number) < 0)
+    int is_neg = res < 0;
+    if (is_neg)
+        res = -res;
+
+    long int_part = res >> FRACTION_BITS;
+    long long fractional_part = ((res & (FRACTION_SCALE - 1)) * 1000000) >> FRACTION_BITS;
+
+    if (snprintf(result, BUFFER_SIZE, "%s%lld.%06lld", is_neg ? "-" : "", int_part, frac_part) < 0)
     {
-        // An encoding error occurred
-        return -1;
+        return -1; // error
     }
 
     return 0; // success
