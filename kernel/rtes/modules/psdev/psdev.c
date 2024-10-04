@@ -23,8 +23,16 @@
  * Commands:
  *     a) Using make: `~/lab0-cmu/kernel/rtes/modules/psdev$ make`
  *     b) Using make M=: `~/lab0-cmu$ make M=kernel/rtes/modules/psdev`
+ *     
+ *     c) insmod psdev.ko
+ *     d) get the major number: 'dmesg | grep psdev'
+ *     e) mknod /dev/psdev[k] c <major> [k]
+ *     f) cat /dev/psdev[k]
+ *     (optional 'chrt -f 80 sleep 120 &) create a real-time thread at pr 80 for 2 mins)
+ *     g) rmmod psdev
+ *     h) rm /dev/psdev[k]
  * 
- */
+ */ 
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
