@@ -685,6 +685,8 @@ __SYSCALL(__NR_syncfs, sys_syncfs)
 __SYSCALL(__NR_setns, sys_setns)
 #define __NR_sendmmsg 269
 __SC_COMP(__NR_sendmmsg, sys_sendmmsg, compat_sys_sendmmsg)
+#define __NR_calc 270
+__SYSCALL(__NR_calc, sys_calc)
 
 #undef __NR_syscalls
 #define __NR_syscalls 271
