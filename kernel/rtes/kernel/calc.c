@@ -22,9 +22,9 @@
 #include <linux/syscalls.h>
 
 
-#define BUFFER_SIZE 16
-#define FRACTION_BITS 16
-#define FRACTION_SCALE (1 << FRACTION_BITS)
+#define BUFFER_SIZE 32
+#define FRACTION_BITS 12
+#define FRACTION_SCALE (1L << FRACTION_BITS)
 
 typedef long fixed_point_t;
 
@@ -142,9 +142,9 @@ long my_calc(const char* param1, const char* param2, char operation, char* resul
         res = -res;
 
     int_part = res >> FRACTION_BITS;
-    frac_part = ((res & (FRACTION_SCALE - 1)) * 1000000) >> FRACTION_BITS;
+    frac_part = ((res & (FRACTION_SCALE - 1)) * 10000L + (FRACTION_SCALE / 2)) >> FRACTION_BITS;
 
-    if (snprintf(result, BUFFER_SIZE, "%s%ld.%3ld", is_neg ? "-" : "", int_part, frac_part) < 0)
+    if (snprintf(result, BUFFER_SIZE, "%s%ld.%ld", is_neg ? "-" : "", int_part, frac_part) < 0)
     {
         return -1; // error
     }
