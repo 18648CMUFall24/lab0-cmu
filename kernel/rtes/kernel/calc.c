@@ -20,7 +20,6 @@
 #include <linux/string.h>
 #include <linux/errno.h>
 #include <linux/syscalls.h>
-#include <linux/syscalls.h>
 
 
 #define BUFFER_SIZE 16
@@ -93,7 +92,7 @@ fixed_point_t str_to_fixed_point(const char *str)
  * @param result buffer to store the result of applying the given arithmetic operation to the two numbers as a character string
  */
 // SYSCALL_DEFINE4(sys_calc, const char *, param1, const char *, param2, char, operation, char *, result)
-asmlinkage long sys_calc(const char* param1, const char* param2, char operation, char* result)
+long my_calc(const char* param1, const char* param2, char operation, char* result)
 {
     fixed_point_t num1, num2, res;
     int is_neg;
@@ -151,4 +150,8 @@ asmlinkage long sys_calc(const char* param1, const char* param2, char operation,
     }
 
     return 0; // success
+}
+
+SYSCALL_DEFINE4(calc, const char*, param1, const char*, param2, char, operation, char*, result ) {
+    return my_calc(param1, param2, operation, result);
 }
