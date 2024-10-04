@@ -24,7 +24,7 @@
 
 #define BUFFER_SIZE 16
 #define FRACTION_BITS 10
-#define FRACTION_SCALE (1 << FRACTION_BITS)
+#define FRACTION_SCALE (1LL << FRACTION_BITS)
 
 typedef long fixed_point_t;
 
@@ -37,7 +37,7 @@ fixed_point_t str_to_fixed_point(const char *str)
     long frac_part = 0;
     int is_neg = 0;
     int i = 0;
-    long multiplier = FRACTION_SCALE / 10;
+    long long multiplier = FRACTION_SCALE / 10;
     fixed_point_t fixed_point;
 
     // Check if number is negative
@@ -96,7 +96,7 @@ asmlinkage long sys_calc(const char *param1, const char *param2, char operation,
 {
     fixed_point_t num1, num2, res;
     int is_neg;
-    long int_part, frac_part;
+    long long int_part, frac_part;
 
     // Check both parameters are valid
     if (param1 == NULL || param2 == NULL || result == NULL)
@@ -142,7 +142,7 @@ asmlinkage long sys_calc(const char *param1, const char *param2, char operation,
         res = -res;
 
     int_part = res >> FRACTION_BITS;
-    frac_part = ((res & (FRACTION_SCALE - 1)) * 10000) >> FRACTION_BITS;
+    frac_part = ((res & (FRACTION_SCALE - 1)) * 10000LL) >> FRACTION_BITS;
 
     if (snprintf(result, BUFFER_SIZE, "%s%ld.%ld", is_neg ? "-" : "", int_part, frac_part) < 0)
     {
