@@ -92,7 +92,7 @@ fixed_point_t str_to_fixed_point(const char *str)
  * @param result buffer to store the result of applying the given arithmetic operation to the two numbers as a character string
  */
 // SYSCALL_DEFINE4(sys_calc, const char *, param1, const char *, param2, char, operation, char *, result)
-asmlinkage long sys_calc(const char* param1, const char* param2, char operation, char* result)
+asmlinkage long sys_calc(const char *param1, const char *param2, char operation, char *result)
 {
     fixed_point_t num1, num2, res;
     int is_neg;
@@ -142,7 +142,7 @@ asmlinkage long sys_calc(const char* param1, const char* param2, char operation,
         res = -res;
 
     int_part = res >> FRACTION_BITS;
-    frac_part = ((res & (FRACTION_SCALE - 1)) * 1000) >> FRACTION_BITS;
+    frac_part = ((res & (FRACTION_SCALE - 1)) * 10000) >> FRACTION_BITS;
 
     if (snprintf(result, BUFFER_SIZE, "%s%ld.%03ld", is_neg ? "-" : "", int_part, frac_part) < 0)
     {
