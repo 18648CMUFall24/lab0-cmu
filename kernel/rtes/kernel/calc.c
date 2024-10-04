@@ -1,5 +1,6 @@
 #include <linux/kernel.h>
 #include <linux/string.h>
+#include <linux/errno.h>
 
 #define BUFFER_SIZE 16
 #define FRACTION_BITS 16
@@ -16,6 +17,8 @@ fixed_point_t str_to_fixed_point(const char *str)
     long frac_part = 0;
     int is_neg = 0;
     int i = 0;
+    long multiplier = FRACTION_SCALE / 10;
+    fixed_point_t fixed_point;
 
     // Check if number is negative
     if (str[0] == '-')
@@ -35,7 +38,6 @@ fixed_point_t str_to_fixed_point(const char *str)
     if (str[i] == '.')
     {
         i++;
-        long multiplier = FRACTION_SCALE / 10;
         while (str[i] != '\0' && multiplier > 0)
         {
             frac_part += (str[i] - '0') * multiplier;
@@ -43,7 +45,7 @@ fixed_point_t str_to_fixed_point(const char *str)
             i++;
         }
     }
-    fixed_point_t fixed_point = (int_part << FRACTION_BITS) + frac_part;
+    fixed_point = (int_part << FRACTION_BITS) + frac_part;
     return is_neg ? -fixed_point : fixed_point;
 }
 
@@ -71,6 +73,10 @@ fixed_point_t str_to_fixed_point(const char *str)
  */
 asmlinkage int sys_calc(const char *param1, const char *param2, char operation, char *result)
 {
+    fixed_point_t num1, num2, res;
+    int is_neg;
+    long int_part, frac_part;
+
     // Check both parameters are valid
     if (param1 == NULL || param2 == NULL || result == NULL)
         return -EINVAL;
@@ -82,8 +88,8 @@ asmlinkage int sys_calc(const char *param1, const char *param2, char operation, 
         return -EINVAL;
 
     // Convert param1 and param2 to float
-    fixed_point_t num1 = str_to_fixed_point(param1);
-    fixed_point_t num2 = str_to_fixed_point(param2);
+    num1 = str_to_fixed_point(param1);
+    num2 = str_to_fixed_point(param2);
 
     // Perform operation
     if (operation == '-')
@@ -96,7 +102,7 @@ asmlinkage int sys_calc(const char *param1, const char *param2, char operation, 
     }
     else if (operation == '*')
     {
-        res = (a * b) >> FRACTION_BITS;
+        res = (num1 * num2) >> FRACTION_BITS;
     }
     else if (operation == '/')
     {
@@ -110,12 +116,12 @@ asmlinkage int sys_calc(const char *param1, const char *param2, char operation, 
     }
 
     // Write result to buffer, with 4 decimal places
-    int is_neg = res < 0;
+    is_neg = res < 0;
     if (is_neg)
         res = -res;
 
-    long int_part = res >> FRACTION_BITS;
-    long long fractional_part = ((res & (FRACTION_SCALE - 1)) * 1000000) >> FRACTION_BITS;
+    int_part = res >> FRACTION_BITS;
+    frac_part = ((res & (FRACTION_SCALE - 1)) * 1000000) >> FRACTION_BITS;
 
     if (snprintf(result, BUFFER_SIZE, "%s%lld.%06lld", is_neg ? "-" : "", int_part, frac_part) < 0)
     {
