@@ -1,6 +1,4 @@
 #include <linux/kernel.h>
-#include <stdlib.h>
-#include <stdio.h>
 #include <linux/string.h>
 
 #define BUFFER_SIZE 16
