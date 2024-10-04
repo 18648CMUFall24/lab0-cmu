@@ -89,11 +89,12 @@ fixed_point_t str_to_fixed_point(const char *str)
  * @param operation arithmetic operation (-, +, *, or /)
  * @param result buffer to store the result of applying the given arithmetic operation to the two numbers as a character string
  */
-asmlinkage int sys_calc(const char *param1, const char *param2, char operation, char *result)
+SYSCALL_DEFINE4(sys_calc, const char *, param1, const char *, param2, char, operation, char *, result)
 {
     fixed_point_t num1, num2, res;
     int is_neg;
     long int_part, frac_part;
+    double result;
 
     // Check both parameters are valid
     if (param1 == NULL || param2 == NULL || result == NULL)
@@ -140,16 +141,12 @@ asmlinkage int sys_calc(const char *param1, const char *param2, char operation, 
 
     int_part = res >> FRACTION_BITS;
     frac_part = ((res & (FRACTION_SCALE - 1)) * 1000000) >> FRACTION_BITS;
+    result = (double)int_part + (double)frac_part / 1000.0;
 
-    if (snprintf(result, BUFFER_SIZE, "%s%ld.%06ld", is_neg ? "-" : "", int_part, frac_part) < 0)
+    if (snprintf(result, BUFFER_SIZE, "%s%.3f", is_neg ? "-" : "", result) < 0)
     {
         return -1; // error
     }
 
     return 0; // success
-}
-
-SYSCALL_DEFINE4(calc, const char __user *, param1, const char __user *, param2, char, operation, char __user *, result)
-{
-    return sys_calc(param1, param2, operation, result);
 }
