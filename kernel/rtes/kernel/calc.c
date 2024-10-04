@@ -1,3 +1,21 @@
+/**
+ * Demo steps:
+ * ~/lab0-cmu make
+ * ~/lab0-cmu/kernel/rtes/apps/calc make
+ *
+ * Copy file to host and fastboot tablet with new image
+ * sudo cp calc /mnt/shared/
+ * sudo cp ~/lab0-cmu/arch/arm/boot/zImage /mnt/shared
+ * adb devices
+ * adb reboot-bootloader
+ * fastboot boot zImage boot.img-ramdisk-root.gz
+ * adb push calc /data
+ * adb shell
+ *
+ * On target:
+ * chmod +x calc
+ */
+
 #include <linux/kernel.h>
 #include <linux/string.h>
 #include <linux/errno.h>
