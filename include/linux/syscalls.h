@@ -844,5 +844,7 @@ asmlinkage long sys_open_by_handle_at(int mountdirfd,
 				      struct file_handle __user *handle,
 				      int flags);
 asmlinkage long sys_setns(int fd, int nstype);
+
+/* rtes sys_xxxx below this line */
 asmlinkage int sys_calc(const char* param1, const char* param2, char operation, char* result);
 #endif
