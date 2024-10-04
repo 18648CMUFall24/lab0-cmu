@@ -33,7 +33,7 @@ int main(int argc, char *argv[])
     char operation = argv[2][0];
     char result[BUFFER_SIZE];
 
-    long ret_val = syscall(376, param1, param2, operation, result);
+    long ret_val = sys_calc(param1, param2, operation, result);
     if (ret_val == 0)
         printf("%s\n", result);
     else

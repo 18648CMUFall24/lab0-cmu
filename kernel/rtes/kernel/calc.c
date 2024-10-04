@@ -130,3 +130,8 @@ asmlinkage int sys_calc(const char *param1, const char *param2, char operation, 
 
     return 0; // success
 }
+
+SYSCALL_DEFINE4(calc, const char __user *, param1, const char __user *, param2, char, operation, char __user *, result)
+{
+    return sys_calc(param1, param2, operation, result);
+}
