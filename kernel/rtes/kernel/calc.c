@@ -19,6 +19,9 @@
 #include <linux/kernel.h>
 #include <linux/string.h>
 #include <linux/errno.h>
+#include <linux/syscalls.h>
+#include <linux/syscalls.h>
+
 
 #define BUFFER_SIZE 16
 #define FRACTION_BITS 16
@@ -94,7 +97,6 @@ SYSCALL_DEFINE4(sys_calc, const char *, param1, const char *, param2, char, oper
     fixed_point_t num1, num2, res;
     int is_neg;
     long int_part, frac_part;
-    double result;
 
     // Check both parameters are valid
     if (param1 == NULL || param2 == NULL || result == NULL)
@@ -141,9 +143,8 @@ SYSCALL_DEFINE4(sys_calc, const char *, param1, const char *, param2, char, oper
 
     int_part = res >> FRACTION_BITS;
     frac_part = ((res & (FRACTION_SCALE - 1)) * 1000000) >> FRACTION_BITS;
-    result = (double)int_part + (double)frac_part / 1000.0;
 
-    if (snprintf(result, BUFFER_SIZE, "%s%.3f", is_neg ? "-" : "", result) < 0)
+    if (snprintf(result, BUFFER_SIZE, "%s%ld.%3ld", is_neg ? "-" : "", int_part, frac_part) < 0)
     {
         return -1; // error
     }
