@@ -46,7 +46,7 @@ struct rt_thread {
     pid_t tid;      /* Thread ID */
     pid_t pid;      /* Process ID */
     int priority;   /* Thread Priority */ 
-    char *name;     /* Name (command) */ 
+    char name[20];     /* Name (command) */ 
 };
 
 SYSCALL_DEFINE2 (list_rt_threads, struct __user rt_thread *, rt_thread_list, unsigned int, num_threads) {
@@ -70,7 +70,8 @@ SYSCALL_DEFINE2 (list_rt_threads, struct __user rt_thread *, rt_thread_list, uns
                 rt_info.tid = t->pid;
                 rt_info.pid = task->tgid;
                 rt_info.priority = t->rt_priority;
-                rt_info.name = t->comm;
+                strncpy(rt_info.name, t->comm, 20);
+                rt_info.name[19] = '\0'; // Ensure null-terminated string
 
                 // Print the data being copied for debugging
                 printk(KERN_INFO "ps: Copying thread info to user space:\n");
@@ -78,7 +79,7 @@ SYSCALL_DEFINE2 (list_rt_threads, struct __user rt_thread *, rt_thread_list, uns
                         rt_info.tid, rt_info.pid, rt_info.priority, rt_info.name);
 
                 // Print destination user-space pointer info for debugging
-                printk(KERN_INFO "ps: Destination rt_thread_list[%d] = %p, copying size = %lu bytes\n",
+                printk(KERN_INFO "ps: Destination rt_thread_list[%d] = %p, copying size = %u bytes\n",
                         i, &rt_thread_list[i], sizeof(struct rt_thread));
 
 
@@ -134,4 +135,5 @@ SYSCALL_DEFINE2 (list_rt_threads, struct __user rt_thread *, rt_thread_list, uns
     // } while_each_thread(task, t);
 
     rcu_read_unlock(); // End the read-side critical section 
+    return i;
 }
