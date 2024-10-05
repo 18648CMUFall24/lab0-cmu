@@ -23,8 +23,9 @@
 
 
 #define BUFFER_SIZE 32
-#define FRACTION_BITS 12
-#define FRACTION_SCALE (1L << FRACTION_BITS)
+// Frac bits: 12 (works for */ but errors in +-), 13 (same), 16 (works for +- but not /*)
+#define FRACTION_BITS 11
+#define FRACTION_SCALE (1 << FRACTION_BITS)
 
 typedef long fixed_point_t;
 
@@ -57,7 +58,7 @@ fixed_point_t str_to_fixed_point(const char *str)
     // Parse fractional part
     if (str[i] == '.')
     {
-        i++;
+        i++; // Move after the .
         while (str[i] != '\0' && multiplier > 0)
         {
             frac_part += (str[i] - '0') * multiplier;
@@ -91,12 +92,10 @@ fixed_point_t str_to_fixed_point(const char *str)
  * @param operation arithmetic operation (-, +, *, or /)
  * @param result buffer to store the result of applying the given arithmetic operation to the two numbers as a character string
  */
-// SYSCALL_DEFINE4(sys_calc, const char *, param1, const char *, param2, char, operation, char *, result)
-long my_calc(const char* param1, const char* param2, char operation, char* result)
-{
+SYSCALL_DEFINE4 (calc, const char*, param1, const char*, param2, char, operation, char*, result ) {
     fixed_point_t num1, num2, res;
-    int is_neg;
     long int_part, frac_part;
+    int is_neg;
 
     // Check both parameters are valid
     if (param1 == NULL || param2 == NULL || result == NULL)
@@ -111,6 +110,7 @@ long my_calc(const char* param1, const char* param2, char operation, char* resul
     // Convert param1 and param2 to float
     num1 = str_to_fixed_point(param1);
     num2 = str_to_fixed_point(param2);
+
 
     // Perform operation
     if (operation == '-')
@@ -136,13 +136,19 @@ long my_calc(const char* param1, const char* param2, char operation, char* resul
         return -1;
     }
 
-    // Write result to buffer, with 4 decimal places
+    // Write result to buffer
     is_neg = res < 0;
     if (is_neg)
         res = -res;
 
     int_part = res >> FRACTION_BITS;
-    frac_part = ((res & (FRACTION_SCALE - 1)) * 10000L + (FRACTION_SCALE / 2)) >> FRACTION_BITS;
+    frac_part = ((res & (FRACTION_SCALE - 1)) * 1000L) >> FRACTION_BITS;
+    if (frac_part != 0){
+        // Remove trailing zeros
+        while (frac_part % 10 == 0) {
+            frac_part /= 10;
+        }
+    }
 
     if (snprintf(result, BUFFER_SIZE, "%s%ld.%ld", is_neg ? "-" : "", int_part, frac_part) < 0)
     {
@@ -150,8 +156,4 @@ long my_calc(const char* param1, const char* param2, char operation, char* resul
     }
 
     return 0; // success
-}
-
-SYSCALL_DEFINE4(calc, const char*, param1, const char*, param2, char, operation, char*, result ) {
-    return my_calc(param1, param2, operation, result);
 }
