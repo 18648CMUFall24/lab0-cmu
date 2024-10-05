@@ -63,6 +63,7 @@ struct getcpu_cache;
 struct old_linux_dirent;
 struct perf_event_attr;
 struct file_handle;
+struct rt_thread;
 
 #include <linux/types.h>
 #include <linux/aio_abi.h>
@@ -847,4 +848,6 @@ asmlinkage long sys_setns(int fd, int nstype);
 
 /* rtes sys_xxxx below this line */
 asmlinkage long sys_calc(const char* param1, const char* param2, char operation, char* result);
+asmlinkage long sys_count_rt_threads(void);
+asmlinkage long sys_list_rt_threads(struct rt_thread __user *rt_thread, unsigned int num_threads);
 #endif
