@@ -94,46 +94,7 @@ SYSCALL_DEFINE2 (list_rt_threads, struct __user rt_thread *, rt_thread_list, uns
             t = next_thread(t);
         } while(t != task);
     }
-        
-
-        // Loop thru all threads
-
-    // do_each_thread(task, t) {
-    //     printk(KERN_INFO "ps: HERE 1\n");
-    //     if (t -> rt_priority > 0){
-    //         printk(KERN_INFO "ps: HERE 2\n");
-
-    //         if (i > num_threads) {
-    //             printk(KERN_WARNING "ps: Thread list reached desired list size\n");
-    //             break; // Exit, reached desired list size
-    //         }
-    //         printk(KERN_INFO "ps: HERE 3\n");
-
-    //         rt_info.tid = t->pid;
-    //         rt_info.pid = task->tgid;
-    //         rt_info.priority = t->rt_priority;
-    //         rt_info.name = t->comm;
-    //         printk(KERN_INFO "ps: HERE 4\n");
-
-    //         if (!access_ok(rt_thread_list, sizeof(struct rt_thread) * num_threads)) {
-    //             printk(KERN_WARNING "ps: Invalid user space pointer\n");
-    //             rcu_read_unlock();
-    //             return -EFAULT;
-    //         }
-
-    //         // unsigned long copy_to_user (void __user * to, const void * from, unsigned long n);
-    //         if (copy_to_user(rt_thread_list + i, &rt_info, sizeof(struct rt_thread))) {
-    //             printk(KERN_WARNING "ps: Error copying thread info to user space\n");
-    //             rcu_read_unlock(); 
-    //             return -EFAULT;
-    //         }
-    //         printk(KERN_INFO "ps: HERE 5\n");
-
-        
-    //         i++;
-    //     }
-    // } while_each_thread(task, t);
-
+ 
     rcu_read_unlock(); // End the read-side critical section 
     return i;
 }
