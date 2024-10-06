@@ -1,0 +1,2 @@
+obj-m += cleanup.o
+# modulename-y += another_source_file.o
