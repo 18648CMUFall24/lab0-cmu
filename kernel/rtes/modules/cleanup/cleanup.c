@@ -1,83 +1,75 @@
 #include <linux/module.h>
 #include <linux/kernel.h>
-#include <linux/syscalls.h>
 #include <linux/sched.h>
 #include <linux/fdtable.h>
-#include <linux/proc_fs.h>
 #include <linux/uaccess.h>
-#include <linux/moduleparam.h>
+#include <linux/kallsyms.h>
+#include <linux/unistd.h>  // For syscall numbers like __NR_exit
 
+static char *comm_filter = "sloppyapp";
+module_param(comm_filter, charp, 0000);
 
-static char *comm = "sloppyapp";  // Default process name to track
-module_param(comm, charp, 0644);  // Allow comm to be passed as a module parameter
-MODULE_PARM_DESC(comm, "Substring of process name to track for open files");
+unsigned long *sys_call_table;
+asmlinkage void (*original_do_exit)(long code);
 
-asmlinkage long (*original_exit_group)(int);
+// Function to find sys_call_table dynamically
+unsigned long *get_sys_call_table(void) {
+    return (unsigned long *)kallsyms_lookup_name("sys_call_table");
+}
 
-asmlinkage long hooked_exit_group(int error_code) {
-    struct task_struct *task = current;  // Get the current task (process)
+#ifndef __NR_exit
+    #define __NR_exit 1  // ARM typically uses 1 for exit, adjust if needed
+#endif
+
+// The hooked do_exit function
+asmlinkage void hooked_do_exit(long code) {
+    struct task_struct *task = current;
     struct files_struct *files = task->files;
     struct fdtable *fdt;
-    struct path files_path;
-    char *buf;
-    char *path;
     int fd;
+    struct file *file;
 
-    if (strstr(task->comm, comm)) {
+    if (strstr(task->comm, comm_filter)) {
         fdt = files_fdtable(files);
-
         for (fd = 0; fd < fdt->max_fds; fd++) {
-            if (fdt->fd[fd]) {
-                files_path = fdt->fd[fd]->f_path;
-
-                buf = (char *)__get_free_page(GFP_KERNEL);
-                if (!buf) {
-                    printk(KERN_ERR "cleanup: Failed to allocate memory for file path\n");
-                    continue;
-                }
-
-                path = d_path(&files_path, buf, PAGE_SIZE);
-                if (!IS_ERR(path)) {
-                    printk(KERN_INFO "cleanup: process '%s' (PID %d) did not close file: %s\n", task->comm, task->pid, path);
-                }
-                free_page((unsigned long)buf);
+            file = fdt->fd[fd];
+            if (file) {
+                printk(KERN_INFO "cleanup: process '%s' (PID %d) did not close file: %s\n",
+                       task->comm, task->pid, file->f_path.dentry->d_name.name);
             }
         }
     }
 
-    return original_exit_group(error_code);  // Call the original exit_group
+    original_do_exit(code); // Call the original function to complete exit
 }
 
-// Hook the exit_group syscall
+// Module initialization
 static int __init cleanup_init(void) {
-    printk(KERN_INFO "cleanup: Module loaded to track process '%s'\n", comm);
-
-    // Replace exit_group with our hooked function
-    original_exit_group = (void *)kallsyms_lookup_name("sys_exit_group");
-    if (original_exit_group == NULL) {
-        printk(KERN_ERR "cleanup: Failed to find sys_exit_group symbol\n");
+    sys_call_table = get_sys_call_table();
+    if (!sys_call_table) {
+        printk(KERN_ERR "cleanup: unable to locate sys_call_table\n");
         return -1;
     }
 
-    write_cr0(read_cr0() & (~0x10000));  // Disable write protection
-    *((unsigned long *)kallsyms_lookup_name("sys_call_table") + __NR_exit_group) = (unsigned long)hooked_exit_group;
-    write_cr0(read_cr0() | 0x10000);     // Re-enable write protection
+    // Override do_exit
+    original_do_exit = (void *)sys_call_table[__NR_exit];
+    sys_call_table[__NR_exit] = (unsigned long)hooked_do_exit;
 
+    printk(KERN_INFO "cleanup: module loaded\n");
     return 0;
 }
 
-// Unhook the syscall and restore original
+// Module cleanup
 static void __exit cleanup_exit(void) {
-    write_cr0(read_cr0() & (~0x10000));  // Disable write protection
-    *((unsigned long *)kallsyms_lookup_name("sys_call_table") + __NR_exit_group) = (unsigned long)original_exit_group;
-    write_cr0(read_cr0() | 0x10000);     // Re-enable write protection
+    // Restore original do_exit
+    sys_call_table[__NR_exit] = (unsigned long)original_do_exit;
 
-    printk(KERN_INFO "cleanup: Module unloaded\n");
+    printk(KERN_INFO "cleanup: module unloaded\n");
 }
-
-MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Your Name");
-MODULE_DESCRIPTION("LKM to track open files of a process on exit");
 
 module_init(cleanup_init);
 module_exit(cleanup_exit);
+
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Your Name");
+MODULE_DESCRIPTION("Intercepts process exits and logs unclosed files");
