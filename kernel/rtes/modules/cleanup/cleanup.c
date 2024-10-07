@@ -1,3 +1,26 @@
+/**
+ * 4.5.3 Override syscalls at runtime (5 points)
+ * Source code location: kernel/rtes/modules/cleanup/cleanup.c
+ * 
+ * TODO:
+ * 1- Intercept when a process exits: when a process exits, report paths of files that were left open.
+ * 2- Use syscall override: override a relevant syscall and do custom processing.
+ * 3- Filter by process name: only report files left open by processes with a specific name. (comm = "sloppyapp")
+ * 4- The override should only be active when the module is loaded, the original syscall 
+ * should be restored when the module is unloaded.
+ * 
+ * Steps:
+ * $ insmod cleanup comm="sloppyapp"
+ * 
+ * A report should be visible in dmesg after a process exits without having closed one or more files. There
+ * should be no output at all if no files were left open. The output should be formatted as follows:
+ * 
+ * cleanup: process 'sloppyapp' (PID 123) did not close files:
+ * cleanup: /path/to/file1
+ * cleanup: /path/to/file2
+ */
+
+
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/sched.h>

@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <linux/kernel.h>
 #include <sys/syscall.h>
+#include <unistd.h>
+#include <string.h>
 
 #define BUFFER_SIZE 32
 #define __NR_calc 376
@@ -37,7 +39,11 @@ int main(int argc, char *argv[])
     char operation = argv[2][0];
     char result[BUFFER_SIZE];
 
-    long ret_val = syscall(__NR_calc, param1, param2, operation, result);
+    if (strcmp(argv[2], "x") == 0) {
+        operation = '*';
+    }
+
+    int64_t ret_val = syscall(__NR_calc, param1, param2, operation, result);
     if (ret_val == 0)
         printf("%s\n", result);
     else
