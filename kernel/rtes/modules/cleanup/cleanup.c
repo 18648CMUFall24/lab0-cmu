@@ -19,64 +19,120 @@
  * cleanup: /path/to/file1
  * cleanup: /path/to/file2
  */
-
-
+#include <linux/init.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/sched.h>
 #include <linux/fdtable.h>
 #include <linux/uaccess.h>
 #include <linux/kallsyms.h>
-#include <linux/unistd.h>  // For syscall numbers like __NR_exit
+#include <linux/unistd.h>
+#include <linux/mm.h>
+#include <linux/fs.h>
+#include <linux/mm_types.h>
+#include <linux/slab.h>
+#include <asm/pgtable.h>
+#include <asm/cacheflush.h>
 
-static char *comm_filter = "sloppyapp";
-module_param(comm_filter, charp, 0000);
 
-unsigned long *sys_call_table;
-asmlinkage void (*original_do_exit)(long code);
+MODULE_LICENSE("Dual BSD/GPL");
 
-// Function to find sys_call_table dynamically
-unsigned long *get_sys_call_table(void) {
-    return (unsigned long *)kallsyms_lookup_name("sys_call_table");
-}
+// stored the name of process that the module should monitor, and the default is "sloppyapp"
+static char *comm = "sloppyapp";
+module_param(comm, charp, 0644);
 
-#ifndef __NR_exit
-    #define __NR_exit 1  // ARM typically uses 1 for exit, adjust if needed
+//access the address of the syscall table
+void **syscall_table;
+// pointer to store the original exit syscall
+asmlinkage long (*original_sys_exit_group)(int code);
+
+// Define L_PTE_RDONLY if not defined
+#ifndef L_PTE_RDONLY
+#define L_PTE_RDONLY    (1 << 7)  // Verify this value for your kernel
 #endif
 
-// The hooked do_exit function
-asmlinkage void hooked_do_exit(long code) {
-    struct task_struct *task = current;
-    struct files_struct *files = task->files;
-    struct fdtable *fdt;
-    int fd;
-    struct file *file;
+// void make_rw(unsigned long address)
+// {
+//     pte_t *pte = lookup_address(address, NULL);
 
-    if (strstr(task->comm, comm_filter)) {
-        fdt = files_fdtable(files);
-        for (fd = 0; fd < fdt->max_fds; fd++) {
-            file = fdt->fd[fd];
-            if (file) {
-                printk(KERN_INFO "cleanup: process '%s' (PID %d) did not close file: %s\n",
-                       task->comm, task->pid, file->f_path.dentry->d_name.name);
+//     if (pte && (pte_val(*pte) & L_PTE_RDONLY)) {
+//         set_pte(pte, __pte(pte_val(*pte) & ~L_PTE_RDONLY));
+//         flush_tlb_all();
+//     }
+// }
+
+// void make_ro(unsigned long address)
+// {
+//     pte_t *pte = lookup_address(address, NULL);
+
+//     if (pte && !(pte_val(*pte) & L_PTE_RDONLY)) {
+//         set_pte(pte, __pte(pte_val(*pte) | L_PTE_RDONLY));
+//         flush_tlb_all();
+//     }
+// }
+
+// The hooked do_exit function
+asmlinkage long my_exit_group(int code) {
+    struct task_struct *task = current;             // get the current task
+    struct files_struct *files;                     // get the files_struct of the task
+    struct fdtable *fdt;                            // file descriptor table
+    int fd;  
+    struct file *file;                              // file pointer
+    int reported = 0;                               // flag to indicate if any files were left open
+    char *tmp;
+    char *path;
+    // printk(KERN_INFO "cleanup: hooked_exit called for process: %s (PID: %d)\n", task->comm, task->pid);
+
+    if (strcmp(task->comm, comm) == 0) {          // check if the process name matches the filter
+        printk(KERN_INFO "cleanup: process name matched: %s\n", task->comm);
+        files = task->files;                        // get the files_struct of the task
+
+        if (files) {
+            spin_lock(&files->file_lock);            // lock the file lock
+            fdt = files_fdtable(files);              // get the file descriptor table
+            for (fd = 0; fd < fdt->max_fds; fd++) {
+                file = fdt->fd[fd];                  // get the file pointer
+                if (file) {
+                    if (!reported) {
+                        printk(KERN_INFO "cleanup: process '%s' (PID %d) did not close files:\n", task->comm, task->pid);
+                        reported = 1;
+                    }
+
+                    tmp = kmalloc(PATH_MAX, GFP_KERNEL);
+                    if (tmp) {
+                        path = d_path(&file->f_path, tmp, PATH_MAX);  // get the path of the file
+                        if (!IS_ERR(path)) {
+                            printk(KERN_INFO "cleanup: %s\n", path);
+                        } else {
+                            printk(KERN_INFO "cleanup: error getting file path\n");
+                        }
+                        kfree(tmp);
+                    } else {
+                        printk(KERN_INFO "cleanup: error allocating memory\n");
+                    }
+                }
             }
+            spin_unlock(&files->file_lock);         // unlock the file lock
         }
     }
-
-    original_do_exit(code); // Call the original function to complete exit
+    return original_sys_exit_group(code); // Call the original function to complete exit
 }
 
 // Module initialization
 static int __init cleanup_init(void) {
-    sys_call_table = get_sys_call_table();
-    if (!sys_call_table) {
-        printk(KERN_ERR "cleanup: unable to locate sys_call_table\n");
+    // Override do_exit
+    // original_exit = sys_call_table[__NR_exit];
+    // disable_write_protection(&sys_call_table[__NR_exit]);
+    syscall_table = (void **)kallsyms_lookup_name("sys_call_table");
+    if (!syscall_table) {
+        printk(KERN_INFO "cleanup: sys_call_table not found\n");
         return -1;
     }
 
-    // Override do_exit
-    original_do_exit = (void *)sys_call_table[__NR_exit];
-    sys_call_table[__NR_exit] = (unsigned long)hooked_do_exit;
+    original_sys_exit_group = syscall_table[__NR_exit_group];
+    // make_rw((unsigned long)syscall_table);
+    syscall_table[__NR_exit_group] = my_exit_group;
+    // make_ro((unsigned long)syscall_table);
 
     printk(KERN_INFO "cleanup: module loaded\n");
     return 0;
@@ -84,15 +140,13 @@ static int __init cleanup_init(void) {
 
 // Module cleanup
 static void __exit cleanup_exit(void) {
-    // Restore original do_exit
-    sys_call_table[__NR_exit] = (unsigned long)original_do_exit;
 
+    // make_rw((unsigned long)syscall_table);
+    syscall_table[__NR_exit_group] = original_sys_exit_group;
+    // make_ro((unsigned long)syscall_table);
     printk(KERN_INFO "cleanup: module unloaded\n");
 }
 
 module_init(cleanup_init);
 module_exit(cleanup_exit);
 
-MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Your Name");
-MODULE_DESCRIPTION("Intercepts process exits and logs unclosed files");
