@@ -70,11 +70,19 @@ static int psdev_release(struct inode *inode, struct file *filp);
 static ssize_t psdev_read(struct file *filp, char __user *buf, size_t count, loff_t *f_pos);
 static long psdev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg);
 static void gather_rt_thread_info(struct psdev_data *dev);
+static ssize_t psdev_write(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos) {
+    return -ENOTSUPP; // Operation not supported
+}
+static loff_t psdev_llseek(struct file *filp, loff_t off, int whence) {
+    return -ENOTSUPP; // Operation not supported
+}
 
 /* initialize file operations */
 static const struct file_operations psdev_fops = {
     .owner = THIS_MODULE,
     .read = psdev_read,
+    .write = psdev_write,
+    .llseek = psdev_llseek,
     .open = psdev_open,
     .release = psdev_release,
     .unlocked_ioctl = psdev_ioctl,
@@ -111,6 +119,7 @@ static int psdev_open(struct inode *inode, struct file *filp)
     // print rt thread info here
     gather_rt_thread_info(psdev);
     mutex_unlock(&psdev->mutex);
+    try_module_get(THIS_MODULE);    // increase module reference count
     return 0;
 }
 
@@ -122,6 +131,7 @@ static int psdev_release(struct inode *inode, struct file *filp)
     kfree(psdev->data);
     psdev->is_open = 0;
     mutex_unlock(&psdev->mutex);
+    module_put(THIS_MODULE); // decrease module reference count
 
     return 0;
 }
