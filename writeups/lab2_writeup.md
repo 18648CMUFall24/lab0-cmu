@@ -25,7 +25,7 @@ Parallel execution is when processes are literally running at the same time, on 
 
 > Dexter is not satisfied with a slow sampling rate, so from now on, suppose the data points are generated at a rate of 100,000 points per second. Assuming the same implementation approach, what fraction of points, if any, are lost due to the overhead delay under the faster sampling rate?
 
-100,000 points per second is 1sec/100,000points = 0.00001s/point = 10µs/point. 10µs/point is much faster than the time it takes to copy the point (100.01µs), therefore all points are lost. 100% of points are lost.
+100,000 points per second is 1sec/100,000points = 0.00001s/point = 10µs/point. Round trips syscall takes 100µs which means the time to retrieve each point is 10 times slower. So only 1 out of 10 points can be read, 90% of points are lost.
 
 ### Q2. (c) (2 points)
 
