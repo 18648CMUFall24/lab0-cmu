@@ -15,6 +15,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/time.h>
+#include <asm/unistd.h>
 
 int main(int argc, char *argv[])
 {
@@ -50,10 +51,9 @@ int main(int argc, char *argv[])
 
     // Set the CPU affinity, so the process runs on the specified CPU
     unsigned long cpu_mask = 1 << cpuid;
-    if (sched_setaffinity(0, sizeof(cpu_mask), &cpu_mask) < 0)
-    {
+    if (syscall(__NR_sched_setaffinity, 0, sizeof(cpu_mask), &cpu_mask) < 0) {
         perror("sched_setaffinity");
-        return 1;
+        return 1; // Return error
     }
 
     struct timeval start, end;
