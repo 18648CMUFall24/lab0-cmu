@@ -9,11 +9,12 @@
  *      $ ./periodic 250 500 0
  */
 
+#define _GNU_SOURCE
+#include <sched.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/time.h>
-#include <sched.h>
 
 int main(int argc, char *argv[])
 {
@@ -25,9 +26,9 @@ int main(int argc, char *argv[])
     }
 
     // Parse the arguments to integers
-    int C = atoi(argv[1]);
-    int T = atoi(argv[2]);
-    int cpuid = atoi(argv[3]);
+    int32_t C = atoi(argv[1]);
+    int32_t T = atoi(argv[2]);
+    int32_t cpuid = atoi(argv[3]);
     printf("C: %d, T: %d, cpuid: %d\n", C, T, cpuid);
 
     // Check if the arguments are valid
@@ -56,7 +57,7 @@ int main(int argc, char *argv[])
     }
 
     struct timeval start, end;
-    int32_t elapsed_ms;
+    uint32_t elapsed_ms;
     // Busy-loop for C µs every T µs
     while (1)
     {
@@ -72,6 +73,7 @@ int main(int argc, char *argv[])
                 break; // Exit busy-loop
         }
         printf(".");
+        fflush(stdout);
 
         // Periodic task is suspended for T - C µs //////////////////
         // usleep: suspend execution for microsecond intervals
