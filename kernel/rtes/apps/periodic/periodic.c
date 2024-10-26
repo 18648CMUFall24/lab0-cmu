@@ -21,6 +21,8 @@
 #include <errno.h>
 #include <signal.h>
 
+#define SIGEXCESS   33
+
 int parse_cmd_args(int argc, char *argv[], int32_t *C, int32_t *T, int32_t *cpuid)
 {
     // Check if the number of arguments is correct
