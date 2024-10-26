@@ -56,15 +56,7 @@ int parse_cmd_args(int argc, char *argv[], int32_t *C, int32_t *T, int32_t *cpui
     }
     return 0; // Success
 }
-        return 1; // Return error
-    }
-
-    if (C > T)
-    {
-        printf("Error: Compute time C must not exceed period T.\n");
-        return 1;
-    }
-
+     
 void set_cpu(int cpuid)
 {
     // Set the CPU affinity, so the process runs on the specified CPU
