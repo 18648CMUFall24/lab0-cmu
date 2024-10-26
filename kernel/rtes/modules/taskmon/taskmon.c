@@ -72,18 +72,18 @@ static struct attribute_group taskmon_attr_group = {
 
 // Init kernel module
 static int taskmon_init(void)
-{
+{   
     // Create a kobject named "rtes" under the kernel kobject
-    rtes_kobj = kobject_create_and_add("rtes", kernel_kobj);
-    if (!rtes_kobj)
+    if (!(rtes_kobj = kobject_create_and_add("rtes", kernel_kobj)))
         return -ENOMEM; // Error NO MEMory
 
     // Create a sysfs file named "taskmon" under the "rtes" kobject
-    int error = sysfs_create_group(rtes_kobj, &taskmon_attr_group);
-    if (error)
+    if (sysfs_create_group(rtes_kobj, &taskmon_attr_group) != 0){
         kobject_put(rtes_kobj); // Release the kobject if there was an error
+        return -1;
+    }        
 
-    return error;
+    return 0;
 }
 
 // Exit kernel module
