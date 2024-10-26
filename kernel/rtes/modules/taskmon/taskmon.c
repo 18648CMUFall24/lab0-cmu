@@ -27,7 +27,8 @@
 MODULE_LICENSE("Dual BSD/GPL");
 
 static bool taskmon_enabled = false;
-static struct kobject *rtes_kobj; // kobject for /rtes
+static struct kobject *rtes_kobj;    // kobject for /rtes
+static struct kobject *taskmon_kobj; // kobject for /rtes/taskmon
 
 // When the user reads the sysfs file
 static ssize_t taskmon_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
@@ -66,15 +67,32 @@ static struct kobj_attribute taskmon_attr = __ATTR(enabled, 0660, taskmon_show, 
 // Init kernel module
 static int __init taskmon_init(void)
 {
-    // Create a kobject named "rtes" under the kernel kobject
-    if (!(rtes_kobj = kobject_create_and_add("rtes", kernel_kobj)))
-        return -ENOMEM; // Error NO MEMory
+    int ret;
 
-    // Create a sysfs file named "taskmon" under the "rtes" kobject
-    if (sysfs_create_file(rtes_kobj, &taskmon_attr.attr) != 0)
+    // Create a kobject named "rtes" under the kernel kobject
+    rtes_kobj = kobject_create_and_add("rtes", kernel_kobj);
+    if (!rtes_kobj)
+    {
+        printk(KERN_ERR "Failed to create kobject: rtes\n");
+        return -ENOMEM; // Error NO MEMory
+    }
+
+    // Create a kobject named "taskmon" under the "rtes" kobject
+    taskmon_kobj = kobject_create_and_add("taskmon", rtes_kobj);
+    if (!taskmon_kobj)
+    {
+        printk(KERN_ERR "Failed to create kobject: taskmon\n");
+        kobject_put(rtes_kobj);
+        return -ENOMEM;
+    }
+
+    // Create a sysfs file named "enabled" under the "taskmon" kobject
+    ret = sysfs_create_file(taskmon_kobj, &taskmon_attr.attr);
+    if (ret)
     {
         printk(KERN_ERR "Failed to create file: /sys/rtes/taskmon/enabled\n");
-        kobject_put(rtes_kobj); // Release the kobject if there was an error
+        kobject_put(taskmon_kobj);
+        kobject_put(rtes_kobj);
         return -1;
     }
 
@@ -85,7 +103,8 @@ static int __init taskmon_init(void)
 // Exit kernel module
 static void __exit taskmon_exit(void)
 {
-    // Remove the sysfs file and release the kobject
+    // Release the kobjects
+    kobject_put(taskmon_kobj);
     kobject_put(rtes_kobj);
 }
 
