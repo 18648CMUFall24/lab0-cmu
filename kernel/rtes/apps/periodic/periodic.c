@@ -18,7 +18,7 @@
 #include <asm/unistd.h>
 #include <errno.h>
 
-int main(int argc, char *argv[])
+void parse_cmd_args(int argc, char *argv[], int32_t *C, int32_t *T, int32_t *cpuid)
 {
     // Check if the number of arguments is correct
     if (argc != 4)
@@ -28,30 +28,36 @@ int main(int argc, char *argv[])
     }
 
     // Parse the arguments to integers
-    int32_t C = atoi(argv[1]);
-    int32_t T = atoi(argv[2]);
-    int32_t cpuid = atoi(argv[3]);
-    printf("C: %dms, T: %dms, cpuid: %d\n", C, T, cpuid);
+    *C = atoi(argv[1]);
+    *T = atoi(argv[2]);
+    *cpuid = atoi(argv[3]);
+    printf("C: %dms, T: %dms, cpuid: %d\n", *C, *T, *cpuid);
 
     // Check if the arguments are valid
-    if (C < 0 || C > 60000)
+    if (*C < 0 || *C > 60000 /*ms*/)
     {
         printf("C must be between 0 - 60,000ms\n");
         return -1; // Return error
     }
-    else if (T < 0 || T > 60000)
+    else if (*T < 0 || *T > 60000 /*ms*/)
     {
         printf("T must be between 0 - 60,000ms\n");
         return -1; // Return error
     }
-    else if (cpuid < 0)
+    else if (*cpuid < 0)
     {
         printf("cpuid must be greater than or equal to 0\n");
         return -1; // Return error
     }
+}
+
+int main(int argc, char *argv[])
+{
+    // Parse the arguments to integers
+    int32_t C, T, cpuid;
+    parse_cmd_args(argc, argv, &C, &T, &cpuid);
 
     // Set the CPU affinity, so the process runs on the specified CPU
-    unsigned long cpu_mask = 1UL << cpuid;
     /**
      * sys_sched_setaffinity - set the cpu affinity of a process
      * @pid: pid of the process
@@ -60,10 +66,7 @@ int main(int argc, char *argv[])
      * SYSCALL_DEFINE3(sched_setaffinity, pid_t, pid, unsigned int, len,
                 unsigned long __user *, user_mask_ptr)
      */
-    // Print value and typeof cpu_mask
-    printf("cpu_mask: %lu, sizeof(cpu_mask): %lu\n", cpu_mask, sizeof(cpu_mask));
-    // Print address of cpu_mask
-    printf("&cpu_mask: %p\n", &cpu_mask);
+    unsigned long cpu_mask = 1UL << cpuid;
     if (syscall(__NR_sched_setaffinity, 0, sizeof(cpu_mask), &cpu_mask) < 0)
     {
         perror("sched_setaffinity");
@@ -84,7 +87,7 @@ int main(int argc, char *argv[])
         {
             gettimeofday(&end, NULL);
             // Calculation of time: (end secs - start secs) * 1000 to get in ms then + (end usecs - start usecs) * 0.001
-            elapsed_ms = ((end.tv_sec - start.tv_sec) * 1000) + ((end.tv_usec - start.tv_usec) * 0.001);
+            elapsed_ms = ((end.tv_sec /*s*/ - start.tv_sec /*s*/) * 1000) /*ms*/ + ((end.tv_usec /*us*/ - start.tv_usec /*us*/) * 0.001) /*ms*/;
             if (elapsed_ms >= C)
                 break; // Exit busy-loop
         }
@@ -93,7 +96,7 @@ int main(int argc, char *argv[])
 
         // Periodic task is suspended for T - C ms //////////////////
         // usleep: suspend execution for microsecond intervals
-        usleep(T - C);
+        usleep((T /*ms*/ - C /*ms*/) * 1000 /*us*/); // ms to us
     }
 
     return 0; // Return success
