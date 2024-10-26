@@ -16,6 +16,7 @@
 #include <unistd.h>
 #include <sys/time.h>
 #include <asm/unistd.h>
+#include <errno.h>
 
 int main(int argc, char *argv[])
 {
@@ -63,13 +64,13 @@ int main(int argc, char *argv[])
     printf("cpu_mask: %lu, sizeof(cpu_mask): %lu\n", cpu_mask, sizeof(cpu_mask));
     // Print address of cpu_mask
     printf("&cpu_mask: %p\n", &cpu_mask);
-    int retvalue = syscall(__NR_sched_setaffinity, 0, sizeof(cpu_mask), &cpu_mask);
-    printf("retvalue: %d\n", retvalue);
-    // if (syscall(__NR_sched_setaffinity, 0, sizeof(cpu_mask), &cpu_mask) < 0)
-    // {
-    //     perror("sched_setaffinity");
-    //     return -1; // Return error
-    // }
+    if (syscall(__NR_sched_setaffinity, 0, sizeof(cpu_mask), &cpu_mask) < 0)
+    {
+        perror("sched_setaffinity");
+        // Print errno
+        printf("errno: %d\n", errno);
+        return -1; // Return error
+    }
 
     struct timeval start, end;
     uint32_t elapsed_ms;
