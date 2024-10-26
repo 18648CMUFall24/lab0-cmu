@@ -16,7 +16,6 @@
 #include <unistd.h>
 #include <sys/time.h>
 #include <asm/unistd.h>
-#include <linux/cpumask.h>
 
 int main(int argc, char *argv[])
 {
@@ -51,11 +50,20 @@ int main(int argc, char *argv[])
     }
 
     // Set the CPU affinity, so the process runs on the specified CPU
-    // unsigned long cpu_mask = 1 << cpuid;
-    // if (syscall(__NR_sched_setaffinity, 0, sizeof(cpu_mask), &cpu_mask) < 0)
-    cpumask_t cpu_mask;
-    cpu_set(cpuid, cpu_mask);
-    if (sched_setaffinity(0, &cpu_mask) < 0)
+    unsigned long cpu_mask = 1UL << cpuid;
+    /**
+     * sys_sched_setaffinity - set the cpu affinity of a process
+     * @pid: pid of the process
+     * @len: length in bytes of the bitmask pointed to by user_mask_ptr
+     * @user_mask_ptr: user-space pointer to the new cpu mask
+     * SYSCALL_DEFINE3(sched_setaffinity, pid_t, pid, unsigned int, len,
+                unsigned long __user *, user_mask_ptr)
+     */
+    // Print value and typeof cpu_mask
+    printf("cpu_mask: %lu, sizeof(cpu_mask): %lu\n", cpu_mask, sizeof(cpu_mask));
+    // Print address of cpu_mask
+    printf("&cpu_mask: %p\n", &cpu_mask);
+    if (syscall(__NR_sched_setaffinity, 0, sizeof(cpu_mask), &cpu_mask) < 0)
     {
         perror("sched_setaffinity");
         return -1; // Return error
