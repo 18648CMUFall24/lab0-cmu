@@ -57,37 +57,33 @@ static ssize_t taskmon_store(struct kobject *kobj, struct kobj_attribute *attr, 
 
 /** Initializes the kobj_attribute struct with the taskmon_show and taskmon_store functions
  *   - enabled is the name of the sysfs file
- *   - 0644 is the permissions of the sysfs file. Read/write for root, read-only for others
+ *   - 0660 is the permissions of the sysfs file, owner can read/write, group can read/write, others can't access
  *   - taskmon_show is the function to call when the user reads the sysfs file
  *   - taskmon_store is the function to call when the user writes to the sysfs file
  */
-static struct kobj_attribute taskmon_attr = __ATTR(enabled, 0644, taskmon_show, taskmon_store);
-static struct attribute *taskmon_attrs[] = {
-    &taskmon_attr.attr,
-    NULL,
-};
-static struct attribute_group taskmon_attr_group = {
-    .attrs = taskmon_attrs,
-};
+static struct kobj_attribute taskmon_attr = __ATTR(enabled, 0660, taskmon_show, taskmon_store);
 
 // Init kernel module
-static int taskmon_init(void)
-{   
+static int __init taskmon_init(void)
+{
     // Create a kobject named "rtes" under the kernel kobject
     if (!(rtes_kobj = kobject_create_and_add("rtes", kernel_kobj)))
         return -ENOMEM; // Error NO MEMory
 
     // Create a sysfs file named "taskmon" under the "rtes" kobject
-    if (sysfs_create_group(rtes_kobj, &taskmon_attr_group) != 0){
+    if (sysfs_create_file(rtes_kobj, &taskmon_attr.attr) != 0)
+    {
+        printk(KERN_ERR "Failed to create file: /sys/rtes/taskmon/enabled\n");
         kobject_put(rtes_kobj); // Release the kobject if there was an error
         return -1;
-    }        
+    }
 
+    printk(KERN_INFO "Created file: /sys/rtes/taskmon/enabled\n");
     return 0;
 }
 
 // Exit kernel module
-static void taskmon_exit(void)
+static void __exit taskmon_exit(void)
 {
     // Remove the sysfs file and release the kobject
     kobject_put(rtes_kobj);
