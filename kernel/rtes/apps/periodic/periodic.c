@@ -20,6 +20,7 @@
 #include <asm/unistd.h>
 #include <errno.h>
 #include <signal.h>
+#include <asm/signal.h>
 
 int parse_cmd_args(int argc, char *argv[], int32_t *C, int32_t *T, int32_t *cpuid)
 {
@@ -72,7 +73,7 @@ void set_cpu(int cpuid)
         perror("sched_setaffinity");
         // Print errno
         printf("errno: %d\n", errno);
-        return -1; // Return error
+        exit(1); // Return error
     }
 }
 
