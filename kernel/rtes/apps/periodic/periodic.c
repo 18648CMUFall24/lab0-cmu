@@ -7,6 +7,8 @@
  *
  * For example, to create a periodic task that performs 250 ms of computation every 500 ms on CPU 0:
  *      $ ./periodic 250 500 0
+ *
+ * Check online CPUs: `cat /sys/devices/system/cpu/online`
  */
 
 #define _GNU_SOURCE
@@ -17,6 +19,7 @@
 #include <sys/time.h>
 #include <asm/unistd.h>
 #include <errno.h>
+#include <signal.h>
 
 int parse_cmd_args(int argc, char *argv[], int32_t *C, int32_t *T, int32_t *cpuid)
 {
@@ -52,13 +55,8 @@ int parse_cmd_args(int argc, char *argv[], int32_t *C, int32_t *T, int32_t *cpui
     return 0; // Success
 }
 
-int main(int argc, char *argv[])
+void set_cpu(int cpuid)
 {
-    // Parse the arguments to integers
-    int32_t C, T, cpuid;
-    if (parse_cmd_args(argc, argv, &C, &T, &cpuid) < 0)
-        perror("parse_cmd_args\n");
-
     // Set the CPU affinity, so the process runs on the specified CPU
     /**
      * sys_sched_setaffinity - set the cpu affinity of a process
@@ -76,6 +74,26 @@ int main(int argc, char *argv[])
         printf("errno: %d\n", errno);
         return -1; // Return error
     }
+}
+
+void sigexcess_handler(int sig)
+{
+    perror("SIGEXCESS: Exceeded budget\n");
+    exit(1);
+}
+
+int main(int argc, char *argv[])
+{
+    // Parse the arguments to integers
+    int32_t C, T, cpuid;
+    if (parse_cmd_args(argc, argv, &C, &T, &cpuid) < 0)
+        perror("parse_cmd_args\n");
+
+    // Set the CPU affinity, so the process runs on the specified CPU
+    set_cpu(cpuid);
+
+    // Register signal handlers
+    signal(SIGEXCESS, sigexcess_handler);
 
     struct timeval start, end;
     uint32_t elapsed_ms;
