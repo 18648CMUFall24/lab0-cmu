@@ -1,7 +1,7 @@
 /**
  * Source code location: kernel/rtes/apps/periodic/periodic.c
  *  Write a native userspace application that takes C, T, cpuid arguments on the command line and busy-
- *  loops for C µs every T µs on the CPU cpuid. Support C and T values up to 60,000 ms (60 secs). The app
+ *  loops for C ms every T ms on the CPU cpuid. Support C and T values up to 60,000 ms (60 secs). The app
  *  should be runnable on the stock kernel too: it does not rely on any of your modifications to the kernel.
  *  Use this app to test your budget accounting and task monitor.
  *
@@ -50,9 +50,7 @@ int main(int argc, char *argv[])
     }
 
     // Set the CPU affinity, so the process runs on the specified CPU
-    cpu_set_t cpu_mask;
-    CPU_ZERO(&cpu_mask);
-    CPU_SET(cpuid, &cpu_mask);
+    unsigned long cpu_mask = 1UL << (int) cpuid;
     if (syscall(__NR_sched_setaffinity, 0, sizeof(cpu_mask), &cpu_mask) < 0)
     {
         perror("sched_setaffinity");
@@ -61,12 +59,12 @@ int main(int argc, char *argv[])
 
     struct timeval start, end;
     uint32_t elapsed_ms;
-    // Busy-loop for C µs every T µs
+    // Busy-loop for C ms every T ms
     while (1)
     {
         // Periodic task is running on CPU //////////////////////////
         gettimeofday(&start, NULL);
-        // Busy-loop for C µs
+        // Busy-loop for C ms
         while (1)
         {
             gettimeofday(&end, NULL);
@@ -78,7 +76,7 @@ int main(int argc, char *argv[])
         printf(".");
         fflush(stdout);
 
-        // Periodic task is suspended for T - C µs //////////////////
+        // Periodic task is suspended for T - C ms //////////////////
         // usleep: suspend execution for microsecond intervals
         usleep(T - C);
     }
