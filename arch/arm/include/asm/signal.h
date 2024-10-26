@@ -72,6 +72,9 @@ typedef unsigned long sigset_t;
 
 #define SIGSWI		32
 
+// Custom defined signals
+#define SIGEXCESS 	33
+
 /*
  * SA_FLAGS values:
  *
