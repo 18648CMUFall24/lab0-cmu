@@ -60,7 +60,8 @@ int parse_cmd_args(int argc, char *argv[], char **cmd, int32_t *tid, int32_t *C,
     }
     else
     {
-        printf("Invalid command: %s\n", *cmd);
+        printf("%s is not a valid command\n", *cmd);
+        printf("Valid commands: set, cancel\n");
         return -1;
     }
 
