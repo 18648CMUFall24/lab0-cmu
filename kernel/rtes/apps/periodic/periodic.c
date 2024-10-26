@@ -24,7 +24,7 @@ int main(int argc, char *argv[])
     if (argc != 4)
     {
         printf("Usage: %s <C> <T> <cpuid>\n", argv[0]);
-        return 1; // Return error
+        return -1; // Return error
     }
 
     // Parse the arguments to integers
@@ -37,17 +37,17 @@ int main(int argc, char *argv[])
     if (C < 0 || C > 60000)
     {
         printf("C must be between 0 - 60,000ms\n");
-        return 1; // Return error
+        return -1; // Return error
     }
     else if (T < 0 || T > 60000)
     {
         printf("T must be between 0 - 60,000ms\n");
-        return 1; // Return error
+        return -1; // Return error
     }
     else if (cpuid < 0)
     {
         printf("cpuid must be greater than or equal to 0\n");
-        return 1; // Return error
+        return -1; // Return error
     }
 
     // Set the CPU affinity, so the process runs on the specified CPU
@@ -58,7 +58,7 @@ int main(int argc, char *argv[])
     if (sched_setaffinity(0, &cpu_mask) < 0)
     {
         perror("sched_setaffinity");
-        return 1; // Return error
+        return -1; // Return error
     }
 
     struct timeval start, end;
