@@ -30,7 +30,7 @@ int main(int argc, char *argv[])
     int32_t C = atoi(argv[1]);
     int32_t T = atoi(argv[2]);
     int32_t cpuid = atoi(argv[3]);
-    printf("C: %d, T: %d, cpuid: %d\n", C, T, cpuid);
+    printf("C: %dms, T: %dms, cpuid: %d\n", C, T, cpuid);
 
     // Check if the arguments are valid
     if (C < 0 || C > 60000)
@@ -51,7 +51,8 @@ int main(int argc, char *argv[])
 
     // Set the CPU affinity, so the process runs on the specified CPU
     unsigned long cpu_mask = 1 << cpuid;
-    if (syscall(__NR_sched_setaffinity, 0, sizeof(cpu_mask), &cpu_mask) < 0) {
+    if (syscall(__NR_sched_setaffinity, 0, sizeof(cpu_mask), &cpu_mask) < 0)
+    {
         perror("sched_setaffinity");
         return 1; // Return error
     }
@@ -67,8 +68,8 @@ int main(int argc, char *argv[])
         while (1)
         {
             gettimeofday(&end, NULL);
-            // Calculation of time: (end secs - start secs) * 1000000 to get in ms then + (end usecs - start usecs)
-            elapsed_ms = ((end.tv_sec - start.tv_sec) * 1000000) + (end.tv_usec - start.tv_usec);
+            // Calculation of time: (end secs - start secs) * 1000 to get in ms then + (end usecs - start usecs) * 0.001
+            elapsed_ms = ((end.tv_sec - start.tv_sec) * 1000) + ((end.tv_usec - start.tv_usec) * 0.001);
             if (elapsed_ms >= C)
                 break; // Exit busy-loop
         }
