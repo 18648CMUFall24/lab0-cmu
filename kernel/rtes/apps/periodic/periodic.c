@@ -18,7 +18,7 @@
 #include <asm/unistd.h>
 #include <errno.h>
 
-void parse_cmd_args(int argc, char *argv[], int32_t *C, int32_t *T, int32_t *cpuid)
+int parse_cmd_args(int argc, char *argv[], int32_t *C, int32_t *T, int32_t *cpuid)
 {
     // Check if the number of arguments is correct
     if (argc != 4)
@@ -49,13 +49,15 @@ void parse_cmd_args(int argc, char *argv[], int32_t *C, int32_t *T, int32_t *cpu
         printf("cpuid must be greater than or equal to 0\n");
         return -1; // Return error
     }
+    return 0; // Success
 }
 
 int main(int argc, char *argv[])
 {
     // Parse the arguments to integers
     int32_t C, T, cpuid;
-    parse_cmd_args(argc, argv, &C, &T, &cpuid);
+    if (parse_cmd_args(argc, argv, &C, &T, &cpuid) < 0)
+        perror("parse_cmd_args\n");
 
     // Set the CPU affinity, so the process runs on the specified CPU
     /**
