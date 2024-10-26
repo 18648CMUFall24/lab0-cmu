@@ -18,7 +18,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
+#include <asm/unistd.h>
+#include <linux/unistd.h>
 #include <sys/syscall.h>
 
 #define MS_IN_NS 1000000
@@ -93,22 +94,22 @@ int main(int argc, char *argv[])
         };
         // TODO: replace with syscalls
         printf("set_reserve(tid=%d, C=%ld.%09ld, T=%ld.%09ld, cpuid=%d)\n", tid, C_ts.tv_sec, C_ts.tv_nsec, T_ts.tv_sec, T_ts.tv_nsec, cpuid);
-        // if (syscall(__NR_set_reserve, tid, &C_ts, &T_ts, cpuid) < 0)
-        // {
-        //     perror("set_reserve");
-        //     return -1; // Return error
-        // }
+        if (syscall(__NR_set_reserve, tid, &C_ts, &T_ts, cpuid) < 0)
+        {
+            perror("set_reserve");
+            return -1; // Return error
+        }
     }
     else if (strcmp(cmd, "cancel") == 0)
     {
         // int cancel_reserve(pid t tid);
         // TODO: replace with syscalls
         printf("cancel_reserve(tid=%d)\n", tid);
-        // if (syscall(__NR_cancel_reserve, tid) < 0)
-        // {
-        //     perror("cancel_reserve");
-        //     return -1; // Return error
-        // }
+        if (syscall(__NR_cancel_reserve, tid) < 0)
+        {
+            perror("cancel_reserve");
+            return -1; // Return error
+        }
     }
 
     return 0;
