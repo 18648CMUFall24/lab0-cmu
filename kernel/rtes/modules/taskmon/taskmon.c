@@ -62,6 +62,13 @@ static ssize_t taskmon_store(struct kobject *kobj, struct kobj_attribute *attr, 
  *   - taskmon_store is the function to call when the user writes to the sysfs file
  */
 static struct kobj_attribute taskmon_attr = __ATTR(enabled, 0644, taskmon_show, taskmon_store);
+static struct attribute *taskmon_attrs[] = {
+    &taskmon_attr.attr,
+    NULL,
+};
+static struct attribute_group taskmon_attr_group = {
+    .attrs = taskmon_attrs,
+};
 
 // Init kernel module
 static int taskmon_init(void)
@@ -72,7 +79,7 @@ static int taskmon_init(void)
         return -ENOMEM; // Error NO MEMory
 
     // Create a sysfs file named "taskmon" under the "rtes" kobject
-    int error = sysfs_create_group(rtes_kobj, &taskmon_attr);
+    int error = sysfs_create_group(rtes_kobj, &taskmon_attr_group);
     if (error)
         kobject_put(rtes_kobj); // Release the kobject if there was an error
 
