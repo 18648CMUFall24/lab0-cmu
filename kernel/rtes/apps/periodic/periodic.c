@@ -20,7 +20,8 @@
 #include <asm/unistd.h>
 #include <errno.h>
 #include <signal.h>
-#include <asm/signal.h>
+
+#define SIGEXCESS   33
 
 int parse_cmd_args(int argc, char *argv[], int32_t *C, int32_t *T, int32_t *cpuid)
 {
