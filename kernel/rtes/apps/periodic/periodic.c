@@ -56,7 +56,7 @@ int parse_cmd_args(int argc, char *argv[], int32_t *C, int32_t *T, int32_t *cpui
     }
     return 0; // Success
 }
-
+     
 void set_cpu(int cpuid)
 {
     // Set the CPU affinity, so the process runs on the specified CPU

@@ -983,6 +983,14 @@ NORET_TYPE void do_exit(long code)
 	exit_shm(tsk);
 	exit_files(tsk);
 	exit_fs(tsk);
+	// for reservation framework
+	if (tsk->has_reservation) {
+		hrtimer_cancel(&tsk->reservation_timer);
+		tsk->has_reservation = false;
+		memset(&tsk->reserve_C, 0, sizeof(struct timespec));
+    	memset(&tsk->reserve_T, 0, sizeof(struct timespec));
+	}
+
 	check_stack_usage();
 	exit_thread();
 

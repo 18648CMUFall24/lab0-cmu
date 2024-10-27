@@ -850,4 +850,6 @@ asmlinkage long sys_setns(int fd, int nstype);
 asmlinkage long sys_calc(const char* param1, const char* param2, char operation, char* result);
 asmlinkage long sys_count_rt_threads(void);
 asmlinkage long sys_list_rt_threads(struct rt_thread __user *rt_thread, unsigned int num_threads);
+asmlinkage long sys_set_reserve(pid_t tid, struct timespec __user *C, struct timespec __user *T, int cpuid);
+asmlinkage long sys_cancel_reserve(pid_t tid);
 #endif

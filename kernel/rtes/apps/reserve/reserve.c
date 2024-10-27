@@ -18,10 +18,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
+#include <asm/unistd.h>
+#include <time.h>
+#include <linux/unistd.h>
 #include <sys/syscall.h>
 
 #define MS_IN_NS 1000000
+#define __NR_set_reserve    (379)
+#define __NR_cancel_reserve (380)
 
 int parse_cmd_args(int argc, char *argv[], char **cmd, int32_t *tid, int32_t *C, int32_t *T, int32_t *cpuid)
 {
@@ -72,6 +76,8 @@ int main(int argc, char *argv[])
 {
     char *cmd;
     int32_t tid, C, T, cpuid;
+    struct timespec C_ts, T_ts;
+
     if (parse_cmd_args(argc, argv, &cmd, &tid, &C, &T, &cpuid) != 0)
     {
         return -1; // Return error
@@ -79,36 +85,31 @@ int main(int argc, char *argv[])
     printf("Args: cmd: %s, tid: %d, C: %dms, T: %dms, cpuid: %d\n", cmd, tid, C, T, cpuid);
 
     // Call the appropriate syscall based on the command
-    if (strcmp(cmd, "set") == 0)
-    {
+    if (strcmp(cmd, "set") == 0) {
         // int set_reserve(pid t tid, struct timespec *C, struct timespec *T, int cpuid);
         // Convert C and T to timespec
-        struct timespec C_ts = {
-            .tv_sec = C / 1000,              // ms -> s
-            .tv_nsec = (C % 1000) * MS_IN_NS // ms -> ns
-        };
-        struct timespec T_ts = {
-            .tv_sec = T / 1000,              // ms -> s
-            .tv_nsec = (T % 1000) * MS_IN_NS // ms -> ns
-        };
+        C_ts.tv_sec = C / 1000;              // ms -> s
+        C_ts.tv_nsec = (C % 1000) * MS_IN_NS; // ms -> ns
+    
+        T_ts.tv_sec = T / 1000;              // ms -> s
+        T_ts.tv_nsec = (T % 1000) * MS_IN_NS; // ms -> ns
+
         // TODO: replace with syscalls
         printf("set_reserve(tid=%d, C=%ld.%09ld, T=%ld.%09ld, cpuid=%d)\n", tid, C_ts.tv_sec, C_ts.tv_nsec, T_ts.tv_sec, T_ts.tv_nsec, cpuid);
-        // if (syscall(__NR_set_reserve, tid, &C_ts, &T_ts, cpuid) < 0)
-        // {
-        //     perror("set_reserve");
-        //     return -1; // Return error
-        // }
-    }
-    else if (strcmp(cmd, "cancel") == 0)
-    {
+        if (syscall(__NR_set_reserve, tid, &C_ts, &T_ts, cpuid) < 0)
+        {
+            perror("set_reserve");
+            return -1; // Return error
+        }
+    } else if (strcmp(cmd, "cancel") == 0) {
         // int cancel_reserve(pid t tid);
         // TODO: replace with syscalls
         printf("cancel_reserve(tid=%d)\n", tid);
-        // if (syscall(__NR_cancel_reserve, tid) < 0)
-        // {
-        //     perror("cancel_reserve");
-        //     return -1; // Return error
-        // }
+        if (syscall(__NR_cancel_reserve, tid) < 0)
+        {
+            perror("cancel_reserve");
+            return -1; // Return error
+        }
     }
 
     return 0;

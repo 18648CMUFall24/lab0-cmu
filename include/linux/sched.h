@@ -1236,6 +1236,13 @@ struct task_struct {
 	struct sched_entity se;
 	struct sched_rt_entity rt;
 
+	/* Reservation Framework parameters*/
+	struct timespec reserve_C;
+	struct timespec reserve_T;
+	struct hrtimer reservation_timer;
+	bool has_reservation;
+	u64 prev_exec_time;			// execution time at the start of period
+
 #ifdef CONFIG_PREEMPT_NOTIFIERS
 	/* list of struct preempt_notifier: */
 	struct hlist_head preempt_notifiers;
