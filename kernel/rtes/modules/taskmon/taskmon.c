@@ -73,7 +73,7 @@ static int __init taskmon_init(void)
     int ret;
 
     // Create a kobject named "rtes" under the kernel kobject
-    rtes_kobj = kobject_create_and_add("rtes", kernel_kobj);
+    rtes_kobj = kobject_create_and_add("rtes", NULL); // use NULL for /sys/ instead of kernel_kobj); which is /sys/kernel
     if (!rtes_kobj)
     {
         printk(KERN_ERR "Failed to create kobject: rtes\n");
