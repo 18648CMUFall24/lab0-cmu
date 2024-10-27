@@ -23,8 +23,11 @@
 #include <linux/module.h>
 #include <linux/kobject.h>
 #include <linux/sysfs.h>
+#include <linux/printk.h>
+#include <linux/fs.h>
+#include <linux/string.h>
 
-MODULE_LICENSE("Dual BSD/GPL");
+MODULE_LICENSE("GPL"); // Required to use some functions
 
 static bool taskmon_enabled = false;
 static struct kobject *rtes_kobj;    // kobject for /rtes
