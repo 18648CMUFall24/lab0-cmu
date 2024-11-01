@@ -21,6 +21,15 @@
 #include <linux/hrtimer.h>
 #include <linux/slab.h> 
 
+enum hrtimer_restart reservation_timer_callback(struct hrtimer *timer) {
+    struct task_struct *task = container_of(timer, struct task_struct, reservation_timer); // get the address of the task strcut that contain this timer
+
+    task->prev_exec_time = task->se.sum_exec_runtime;       // update prev_exec_timer
+    hrtimer_forward_now(timer, timespec_to_ktime(task->reserve_T)); // forward timer to next period
+
+    return HRTIMER_RESTART; // trigger periodically
+}
+
 SYSCALL_DEFINE4(set_reserve, pid_t, pid, struct timespec __user *, C, struct timespec __user *, T, int, cpuid) {
     struct task_struct *task;
     struct timespec c, t;
@@ -126,13 +135,4 @@ SYSCALL_DEFINE1(cancel_reserve, pid_t, pid) {
         put_task_struct(task);
 
     return 0;
-}
-
-enum hrtimer_restart reservation_timer_callback(struct hrtimer *timer) {
-    struct task_struct *task = container_of(timer, struct task_struct, reservation_timer); // get the address of the task strcut that contain this timer
-
-    task->prev_exec_time = task->se.sum_exec_runtime;       // update prev_exec_timer
-    hrtimer_forward_now(timer, timespec_to_ktime(task->reserve_T)); // forward timer to next period
-
-    return HRTIMER_RESTART; // trigger periodically
 }
