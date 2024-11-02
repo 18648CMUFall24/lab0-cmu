@@ -3085,7 +3085,7 @@ static void finish_task_switch(struct rq *rq, struct task_struct *prev)
 		u64 period = now - prev->exec_start_time;
 		prev->exec_time_accumulated += period;
 		printk(KERN_DEBUG "finish_task_switch: PID %d accumulated %llu ns (delta %llu ns)\n",
-               prev->pid, prev->exec_time_accumulated, delta);
+               prev->pid, prev->exec_time_accumulated, period);
 	}
 
 	fire_sched_in_preempt_notifiers(current);

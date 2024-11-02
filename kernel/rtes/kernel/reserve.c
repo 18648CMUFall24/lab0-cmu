@@ -96,7 +96,8 @@ SYSCALL_DEFINE4(set_reserve, pid_t, pid, struct timespec __user *, C, struct tim
     if (pid != 0) 
         put_task_struct(task);
     
-    printk(KERN_INFO "set_reserve: Reservation set for PID %d on CPU %d\n", task->pid, cpuid);
+    printk(KERN_INFO "set_reserve called: pid=%d, C=%ld.%09ld, T=%ld.%09ld, cpuid=%d\n",
+           pid, c.tv_sec, c.tv_nsec, t.tv_sec, t.tv_nsec, cpuid);
 
     return 0;
 }
