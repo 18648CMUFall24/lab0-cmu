@@ -20,6 +20,7 @@
 #include <asm/unistd.h>
 #include <errno.h>
 #include <signal.h>
+#include <sys/types.h>
 
 #define SIGEXCESS   33
 
@@ -36,6 +37,10 @@ int parse_cmd_args(int argc, char *argv[], int32_t *C, int32_t *T, int32_t *cpui
     *C = atoi(argv[1]);
     *T = atoi(argv[2]);
     *cpuid = atoi(argv[3]);
+    pid_t tid = gettid();
+
+    // Print info
+    printf("Thread ID: %d\n", tid);
     printf("C: %dms, T: %dms, cpuid: %d\n", *C, *T, *cpuid);
 
     // Check if the arguments are valid
