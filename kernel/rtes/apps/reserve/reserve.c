@@ -30,6 +30,14 @@
 #define __NR_list_rt_threads 378
 #define MAX_THREADS 200
 
+struct rt_thread
+{
+    pid_t tid;    /* Thread ID */
+    pid_t pid;    /* Process ID */
+    int priority; /* Thread Priority */
+    char name[20];   /* Name (command) */
+};
+
 int parse_cmd_args(int argc, char *argv[], char **cmd, int32_t *tid, int32_t *C, int32_t *T, int32_t *cpuid)
 {
     // Parse and check command line arguments
