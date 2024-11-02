@@ -10,6 +10,19 @@
  *  on the system as an alternative way of specifying the target thread.
  *      > Implemented in 2.2.5 Reservation control application (kernel/rtes/apps/reserve/reserve.c)
  *
+ * 2.4.2 Average utilization display (10 points)
+ * To visualize the computation demands of tasks over time, add a UI layout for displaying the average
+ * utilization of threads with active reserves. Create an option for starting and stopping a monitoring session
+ * (see Section 2.3). After monitoring session is stopped, the UI should compute and display the average
+ * utilization of threads with active reserves collected during the session. Threads that have reserves set
+ * during the monitoring session should be included.
+ * Retrieve the utilization data points from the kernel by reading the sysfs virtual files that you
+ * implemented in Section 2.3. List the /sys/rtes/taskmon/util directory to get the list of threads that might have
+ * data. You may choose to retrieve the data either periodically during the monitoring session or immediately
+ * after the session is stopped.
+ * Your app should continue to record data if it is sent to background while the monitoring is on. This
+ * allows measuring the utilization of foreground applications (e.g. YouTube decoding thread).
+ *
  * TA Comments:
  *  - For 2.4.1, you can create the task using C which displays the list of real-time threads and allows the user
  *      to choose from them for setting and cancelling reservations.
@@ -24,11 +37,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <signal.h>
+#include <dirent.h>
 
 #define MAX_BUFFER 256
 #define ENABLED_FILE "/sys/rtes/taskmon/enabled"
 #define ENABLED "enabled (1)"
 #define DISABLED "disabled (0)"
+#define UTIL_DIR "/sys/rtes/taskmon/util"
 
 // Read file
 int read_file(char *filename, char *buffer)
@@ -67,6 +82,37 @@ int get_enabled(void)
     return enabled;
 }
 
+int list_tid_files(void)
+{
+    DIR *d;
+    struct dirent *dir;
+    char buffer[MAX_BUFFER];
+    char abs_filepath[MAX_BUFFER];
+
+    d = opendir(UTIL_DIR);
+    if (!d)
+    {
+        fprintf(stderr, "Failed to open directory: %s\n", UTIL_DIR);
+        return -1;
+    }
+
+    while ((dir = readdir(d)) != NULL)
+    {
+        printf("FILE in dir: %s\n", dir->d_name);
+        // Convert filename into absolute path
+        snprintf(abs_filepath, sizeof(abs_filepath), "%s/%s", UTIL_DIR, dir->d_name);
+        // Read file content into buffer
+        if (read_file(abs_filepath, buffer) < 0)
+        {
+            fprintf(stderr, "Failed to read file: %s\n", abs_filepath);
+            return -1;
+        }
+        printf("CONTENT: %s\n", buffer);
+    }
+    closedir(d);
+    return 0; // Success
+}
+
 // Write to enabled file to toggle enabled
 void sigquit_handler(int signum)
 {
@@ -96,7 +142,11 @@ int main(int argc, char *argv[])
     signal(SIGQUIT, sigquit_handler);
     printf("Press Ctrl+\\ to toggle status to %s\n", enabled ? DISABLED : ENABLED);
 
-    while (1) {
+    // UI should compute and display the average utilization of threads with active reserves collected during the session.
+    list_tid_files();
+    printf("| TIDs                 | Avg Util |\n");
+    while (1)
+    {
         sleep(1);
     }
 
