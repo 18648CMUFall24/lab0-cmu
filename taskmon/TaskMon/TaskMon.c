@@ -1,4 +1,7 @@
 /**
+ * Demo steps
+ * - First need to load kernel module: `insmod ./taskmon.ko`
+ *
  * 2.4 Task Monitor Application (15 points + 5 bonus)
  *  Source code location: taskmon/TaskMon/ (build.xml should be in this directory)
  *  Unleash the power of a GUI for your shiny new reservation and instrumentation framework. This
@@ -141,12 +144,12 @@ void sigquit_handler(int signum)
 
 int main(int argc, char *argv[])
 {
-    printf("=== Task Monitor ===\n");
+    printf("====== Task Monitor ======\n");
     int enabled = get_enabled();
-    printf("Status: %s\n", enabled ? ENABLED : DISABLED);
+    printf("=> Status: %s\n", enabled ? ENABLED : DISABLED);
     // Toggle status when SIGQUIT is received
     signal(SIGQUIT, sigquit_handler);
-    printf("Press Ctrl+\\ to toggle status to %s\n", enabled ? DISABLED : ENABLED);
+    printf("=> Press Ctrl+\\ to toggle status to %s\n", enabled ? DISABLED : ENABLED);
 
     // UI should compute and display the average utilization of threads with active reserves collected during the session.
     list_tid_files();
