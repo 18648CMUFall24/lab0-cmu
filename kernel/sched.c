@@ -3081,6 +3081,7 @@ static void finish_task_switch(struct rq *rq, struct task_struct *prev)
 
 	/* accumulator tracker */
 	if (prev && prev->has_reservation) {
+		printk(KERN_INFO"Enter finish task switch for PID %d", prev->pid);
 		u64 now = local_clock();
 		u64 period = now - prev->exec_start_time;
 		prev->exec_accumulated_time += period;

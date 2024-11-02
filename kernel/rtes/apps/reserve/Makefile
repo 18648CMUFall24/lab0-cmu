@@ -26,8 +26,19 @@ EXTRA_LDFLAGS = --sysroot=$(SYSROOT) \
                 -L$(LIBSTDCPP)/libs/armeabi-v7a \
                 -lgnustl_static -lsupc++
 
+EXTRA_LDFLAGS_C = --sysroot=$(SYSROOT) \
+                  -Wl,--gc-sections
+
+# Targets
+TARGETS = reserve compute_program
+
+all: $(TARGETS)
+
 reserve: reserve.c
-	$(CC) $(EXTRA_CFLAGS) $(EXTRA_LDFLAGS) -o reserve reserve.c
+	$(CC) $(EXTRA_CFLAGS) $(EXTRA_LDFLAGS) -o $@ $<
+
+compute_program: compute_program.c
+	$(CC) $(EXTRA_CFLAGS) $(EXTRA_LDFLAGS_C) -o $@ $<
 
 clean:
-	rm -f reserve
+	rm -f $(TARGETS)
