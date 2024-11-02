@@ -79,7 +79,7 @@ int get_enabled(void)
     int enabled;
     // Read file
     if (read_file(ENABLED_FILE, buffer) < 0)
-        return -1;
+        exit(1);
     // Convert to integer
     enabled = atoi(buffer);
     return enabled;
@@ -96,7 +96,7 @@ int list_tid_files(void)
     if (!d)
     {
         fprintf(stderr, "Failed to open directory: %s\n", UTIL_DIR);
-        return -1;
+        exit(1);
     }
 
     while ((dir = readdir(d)) != NULL)
@@ -113,9 +113,7 @@ int list_tid_files(void)
         snprintf(abs_filepath, sizeof(abs_filepath), "%s/%s", UTIL_DIR, dir->d_name);
         // Read file content into buffer
         if (read_file(abs_filepath, buffer) < 0)
-        {
-            fprintf(stderr, "Failed to read file: %s\n", abs_filepath);
-        }
+            exit(1);
         printf("CONTENT: %s\n", buffer);
     }
     closedir(d);
