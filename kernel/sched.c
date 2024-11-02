@@ -3083,9 +3083,9 @@ static void finish_task_switch(struct rq *rq, struct task_struct *prev)
 	if (prev && prev->has_reservation) {
 		u64 now = local_clock();
 		u64 period = now - prev->exec_start_time;
-		prev->exec_time_accumulated += period;
+		prev->exec_accumulated_time += period;
 		printk(KERN_DEBUG "finish_task_switch: PID %d accumulated %llu ns (delta %llu ns)\n",
-               prev->pid, prev->exec_time_accumulated, period);
+               prev->pid, prev->exec_accumulated_time, period);
 	}
 
 	fire_sched_in_preempt_notifiers(current);

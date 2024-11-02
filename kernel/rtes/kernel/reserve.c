@@ -25,9 +25,9 @@ enum hrtimer_restart reservation_timer_callback(struct hrtimer *timer) {
     struct task_struct *task = container_of(timer, struct task_struct, reservation_timer); // get the address of the task strcut that contain this timer
 
     printk(KERN_INFO "reservation_timer_callback: PID %d accumulated execution time: %llu ns\n",
-           task->pid, task->exec_time_accumulated);
+           task->pid, task->exec_accumulated_time);
 
-    task->exec_time_accumulated = 0;
+    task->exec_accumulated_time = 0;
     hrtimer_forward_now(timer, timespec_to_ktime(task->reserve_T)); // forward timer to next period
 
     return HRTIMER_RESTART; // trigger periodically
