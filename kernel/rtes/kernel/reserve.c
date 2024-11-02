@@ -24,7 +24,10 @@
 enum hrtimer_restart reservation_timer_callback(struct hrtimer *timer) {
     struct task_struct *task = container_of(timer, struct task_struct, reservation_timer); // get the address of the task strcut that contain this timer
 
-    task->prev_exec_time = task->se.sum_exec_runtime;       // update prev_exec_timer
+    printk(KERN_INFO "reservation_timer_callback: PID %d accumulated execution time: %llu ns\n",
+           task->pid, task->exec_time_accumulated);
+
+    task->exec_time_accumulated = 0;
     hrtimer_forward_now(timer, timespec_to_ktime(task->reserve_T)); // forward timer to next period
 
     return HRTIMER_RESTART; // trigger periodically
@@ -51,6 +54,7 @@ SYSCALL_DEFINE4(set_reserve, pid_t, pid, struct timespec __user *, C, struct tim
         return -EINVAL;
     }
 
+    // retrieve the task struct
     if (pid == 0) {
         task = current;
     } else {
@@ -85,12 +89,14 @@ SYSCALL_DEFINE4(set_reserve, pid_t, pid, struct timespec __user *, C, struct tim
     task->has_reservation = true;
 
     // initialize a high resolution timer trigger periodically T units
-    hrtimer_init(&task->reservation_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL_PINNED);
+    hrtimer_init(&task->reservation_timer, CLOCK_MONOTONIC, HRTIMER_MODE_PINNED);
     task->reservation_timer.function = reservation_timer_callback;
-    hrtimer_start(&task->reservation_timer, timespec_to_ktime(t), HRTIMER_MODE_REL_PINNED);
+    hrtimer_start(&task->reservation_timer, timespec_to_ktime(t), HRTIMER_MODE_PINNED);
 
     if (pid != 0) 
         put_task_struct(task);
+    
+    printk(KERN_INFO "set_reserve: Reservation set for PID %d on CPU %d\n", task->pid, cpuid);
 
     return 0;
 }
@@ -134,5 +140,6 @@ SYSCALL_DEFINE1(cancel_reserve, pid_t, pid) {
     if (pid != 0) 
         put_task_struct(task);
 
+    printk(KERN_INFO "cancel_reserve: Reservation cancelled for PID %d\n", task->pid);
     return 0;
 }

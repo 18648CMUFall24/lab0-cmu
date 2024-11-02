@@ -1243,6 +1243,10 @@ struct task_struct {
 	bool has_reservation;
 	u64 prev_exec_time;			// execution time at the start of period
 
+	/* Computation time tracking */
+	u64 exec_start_time;		// timestamp of task start
+	u64 exec_accumulated_time;		// accumulated execution time
+
 #ifdef CONFIG_PREEMPT_NOTIFIERS
 	/* list of struct preempt_notifier: */
 	struct hlist_head preempt_notifiers;

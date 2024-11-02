@@ -72,6 +72,7 @@
 #include <linux/ftrace.h>
 #include <linux/slab.h>
 #include <linux/cpuacct.h>
+#include <linux/sched_clock.h>
 
 #include <asm/tlb.h>
 #include <asm/irq_regs.h>
@@ -3024,6 +3025,12 @@ prepare_task_switch(struct rq *rq, struct task_struct *prev,
 	fire_sched_out_preempt_notifiers(prev, next);
 	prepare_lock_switch(rq, next);
 	prepare_arch_switch(next);
+
+	if (next && next->has_reservation) {
+		next->exec_start_time = local_clock();
+		printk(KERN_DEBUG "prepare_task_switch: PID %d exec_start_time set to %llu\n",
+               next->pid, next->exec_start_time);
+	}
 	trace_sched_switch(prev, next);
 }
 
@@ -3071,6 +3078,15 @@ static void finish_task_switch(struct rq *rq, struct task_struct *prev)
 	local_irq_enable();
 #endif /* __ARCH_WANT_INTERRUPTS_ON_CTXSW */
 	finish_lock_switch(rq, prev);
+
+	/* accumulator tracker */
+	if (prev && prev->has_reservation) {
+		u64 now = local_clock();
+		u64 period = now - prev->exec_start_time;
+		prev->exec_time_accumulated += period;
+		printk(KERN_DEBUG "finish_task_switch: PID %d accumulated %llu ns (delta %llu ns)\n",
+               prev->pid, prev->exec_time_accumulated, delta);
+	}
 
 	fire_sched_in_preempt_notifiers(current);
 	if (mm)
