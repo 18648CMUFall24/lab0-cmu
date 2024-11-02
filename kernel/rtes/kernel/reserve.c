@@ -20,12 +20,33 @@
 #include <linux/timer.h>
 #include <linux/hrtimer.h>
 #include <linux/slab.h> 
+#include <linux/signal.h>
+
 
 enum hrtimer_restart reservation_timer_callback(struct hrtimer *timer) {
     struct task_struct *task = container_of(timer, struct task_struct, reservation_timer); // get the address of the task strcut that contain this timer
+    u64 budget_ns = timespec_to_ns(&task->reserve_C);
 
     printk(KERN_INFO "reservation_timer_callback: PID %d accumulated execution time: %llu ns\n",
            task->pid, task->exec_accumulated_time);
+
+    if (task->exec_accumulated_time > budget_ns) {
+        // send SIGEXCESS signal to process
+        struct siginfo info;
+        memset(&info, 0, sizeof(struct siginfo));
+        info.si_signo = SIGEXCESS;
+        info.si_code = SI_KERNEL;
+
+        printk(KERN_WARNING "Budget overrun detected for PID %d: execution time %llu ns exceeded budget %llu ns\n",
+               task->pid, task->exec_accumulated_time, budget_ns);
+
+        /* Send the signal to the task's process */
+        if (send_sig_info(SIGEXCESS, &info, task) < 0) {
+            printk(KERN_ERR "Failed to send SIGEXCESS to PID %d\n", task->pid);
+        } else {
+            printk(KERN_INFO "SIGEXCESS sent to PID %d\n", task->pid);
+        }
+    }
 
     task->exec_accumulated_time = 0;
     hrtimer_forward_now(timer, timespec_to_ktime(task->reserve_T)); // forward timer to next period
