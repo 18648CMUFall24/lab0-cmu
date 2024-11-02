@@ -26,6 +26,7 @@
 #include <linux/printk.h>
 #include <linux/fs.h>
 #include <linux/string.h>
+#include <linux/slab.h>
 
 MODULE_LICENSE("GPL"); // Required to use some functions
 
@@ -72,7 +73,7 @@ static ssize_t enabled_store(struct kobject *kobj, struct kobj_attribute *attr, 
 static ssize_t tid_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
 {
     // Return the current value of taskmon_enabled as 0 or 1
-    return sprintf(buf, "%s\n%s\n%s", "10 0.5", "14 0.25", "18 0.25");
+    return sprintf(buf, "%s\n%s\n%s\n", "10 0.5", "14 0.25", "18 0.25");
 }
 
 /** Initializes the kobj_attribute struct with the enabled_show and enabled_store functions
@@ -85,7 +86,6 @@ static struct kobj_attribute enabled_attr = __ATTR(enabled, 0660, enabled_show, 
 
 int init_kobjects(void)
 {
-    int ret;
     // Create a kobject named "rtes" under the kernel kobject
     rtes_kobj = kobject_create_and_add("rtes", NULL); // use NULL for /sys/ instead of kernel_kobj); which is /sys/kernel
     if (!rtes_kobj)
@@ -128,6 +128,7 @@ void free_tid_attr_list(void)
     while (node)
     {
         next = node->next;
+        kfree(node->attr->attr.name);
         kfree(node->attr);
         kfree(node);
         node = next;
@@ -156,6 +157,7 @@ int create_tid_file(int tid)
 {
     int ret;
     struct kobj_attribute *tid_attr;
+    struct tid_attr_node *new_node;
 
     // Allocate memory for the attribute
     tid_attr = kzalloc(sizeof(*tid_attr), GFP_KERNEL); // alloc and init to zero
@@ -163,7 +165,7 @@ int create_tid_file(int tid)
         return -ENOMEM;
 
     // Initialize the attribute
-    tid_attr->attr.name = (char *)tid;
+    tid_attr->attr.name = kasprintf(GFP_KERNEL, "%d", tid);
     tid_attr->attr.mode = 0444; // Read-only
     tid_attr->show = tid_show;
 
@@ -172,11 +174,12 @@ int create_tid_file(int tid)
     if (ret)
     {
         printk(KERN_ERR "Failed to create file: /sys/rtes/taskmon/util/%d\n", tid);
+        kfree(tid_attr->attr.name);
         kfree(tid_attr);
         return -1;
     }
     // Add attribute to the list
-    struct tid_attr_node *new_node = kzalloc(sizeof(*new_node), GFP_KERNEL);
+    new_node = kzalloc(sizeof(*new_node), GFP_KERNEL);
     new_node->attr = tid_attr;
     new_node->next = tid_attr_list;
     tid_attr_list = new_node;
