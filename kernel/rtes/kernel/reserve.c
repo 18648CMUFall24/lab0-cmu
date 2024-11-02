@@ -104,15 +104,18 @@ SYSCALL_DEFINE4(set_reserve, pid_t, pid, struct timespec __user *, C, struct tim
         return ret;
     }
 
+    spin_lock(&task->alloc_lock);
     // store the paremeters in the task struct
     task->reserve_C = c;
     task->reserve_T = t;
     task->has_reservation = true;
-
+    
     // initialize a high resolution timer trigger periodically T units
     hrtimer_init(&task->reservation_timer, CLOCK_MONOTONIC, HRTIMER_MODE_PINNED);
     task->reservation_timer.function = reservation_timer_callback;
     hrtimer_start(&task->reservation_timer, timespec_to_ktime(t), HRTIMER_MODE_PINNED);
+
+    spin_unlock(&task->alloc_lock);
 
     if (pid != 0) 
         put_task_struct(task);
