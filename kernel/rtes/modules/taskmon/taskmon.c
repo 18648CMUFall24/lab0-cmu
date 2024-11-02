@@ -176,6 +176,12 @@ static int __init taskmon_init(void)
     if (create_enabled_file() != 0)
         return -1;
 
+    // Mock create tid files from 0 to 9
+    for (int i = 0; i < 10; i++)
+    {
+        if (create_tid_file(i) != 0)
+            return -1;
+    }
     return 0;
 }
 
