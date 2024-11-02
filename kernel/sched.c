@@ -72,7 +72,7 @@
 #include <linux/ftrace.h>
 #include <linux/slab.h>
 #include <linux/cpuacct.h>
-#include <linux/sched_clock.h>
+#include <asm/sched_clock.h>
 
 #include <asm/tlb.h>
 #include <asm/irq_regs.h>
