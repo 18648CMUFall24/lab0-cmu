@@ -34,6 +34,14 @@ static struct kobject *rtes_kobj;    // kobject for /rtes
 static struct kobject *taskmon_kobj; // kobject for /rtes/taskmon
 static struct kobject *util_kobj;    // kobject for /rtes/taskmon/util
 
+struct tid_attr_node
+{
+    struct kobj_attribute *attr;
+    struct tid_attr_node *next;
+};
+// Store the list of TID attributes
+struct tid_attr_node *tid_attr_list = NULL;
+
 // When the user reads the sysfs file
 static ssize_t enabled_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
 {
@@ -64,26 +72,7 @@ static ssize_t enabled_store(struct kobject *kobj, struct kobj_attribute *attr, 
 static ssize_t tid_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
 {
     // Return the current value of taskmon_enabled as 0 or 1
-    return sprintf(buf, "%d\n", (int)taskmon_enabled);
-}
-
-// When the user writes to the sysfs file
-static ssize_t tid_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count)
-{
-    // Set taskmon_enabled to true or false and start or stop monitoring accordingly
-    if (buf[0] == '1')
-    {
-        taskmon_enabled = true;
-        // Start monitoring
-        printk(KERN_INFO "Taskmon enabled\n");
-    }
-    else if (buf[0] == '0')
-    {
-        taskmon_enabled = false;
-        // Stop monitoring
-        printk(KERN_INFO "Taskmon disabled\n");
-    }
-    return count;
+    return sprintf(buf, "%s\n%s\n%s", "10 0.5", "14 0.25", "18 0.25");
 }
 
 /** Initializes the kobj_attribute struct with the enabled_show and enabled_store functions
@@ -94,7 +83,8 @@ static ssize_t tid_store(struct kobject *kobj, struct kobj_attribute *attr, cons
  */
 static struct kobj_attribute enabled_attr = __ATTR(enabled, 0660, enabled_show, enabled_store);
 
-int init_kobjects(void){
+int init_kobjects(void)
+{
     int ret;
     // Create a kobject named "rtes" under the kernel kobject
     rtes_kobj = kobject_create_and_add("rtes", NULL); // use NULL for /sys/ instead of kernel_kobj); which is /sys/kernel
@@ -123,11 +113,25 @@ int init_kobjects(void){
     return 0;
 }
 
-int release_kobjects(void) {
+void release_kobjects(void)
+{
     // Release the kobjects
     kobject_put(rtes_kobj);
     kobject_put(taskmon_kobj);
     kobject_put(util_kobj);
+}
+
+void free_tid_attr_list(void)
+{
+    struct tid_attr_node *node = tid_attr_list;
+    struct tid_attr_node *next;
+    while (node)
+    {
+        next = node->next;
+        kfree(node->attr);
+        kfree(node);
+        node = next;
+    }
 }
 
 // Create the sysfs file /sys/rtes/taskmon/enabled
@@ -149,19 +153,34 @@ int create_enabled_file(void)
 
 // Create /sys/rtes/taskmon/util/<tid>
 int create_tid_file(int tid)
-{ 
+{
     int ret;
-    // Create a sysfs file named "<tid>" under the "taskmon" kobject
-    static struct kobj_attribute tid_attr = __ATTR(tid, 0660, tid_show, tid_store);
-    ret = sysfs_create_file(util_kobj, &tid_attr.attr);
+    struct kobj_attribute *tid_attr;
+
+    // Allocate memory for the attribute
+    tid_attr = kzalloc(sizeof(*tid_attr), GFP_KERNEL); // alloc and init to zero
+    if (!tid_attr)
+        return -ENOMEM;
+
+    // Initialize the attribute
+    tid_attr->attr.name = (char *)tid;
+    tid_attr->attr.mode = 0444; // Read-only
+    tid_attr->show = tid_show;
+
+    // Create the sysfs file
+    ret = sysfs_create_file(util_kobj, &tid_attr->attr);
     if (ret)
     {
-        printk(KERN_ERR "Failed to create file: /sys/rtes/taskmon/util/<tid>\n");
-        kobject_put(rtes_kobj);
-        kobject_put(taskmon_kobj);
-        kobject_put(util_kobj);
+        printk(KERN_ERR "Failed to create file: /sys/rtes/taskmon/util/%d\n", tid);
+        kfree(tid_attr);
         return -1;
     }
+    // Add attribute to the list
+    struct tid_attr_node *new_node = kzalloc(sizeof(*new_node), GFP_KERNEL);
+    new_node->attr = tid_attr;
+    new_node->next = tid_attr_list;
+    tid_attr_list = new_node;
+
     printk(KERN_INFO "Created file: /sys/rtes/taskmon/util/%d\n", tid);
     return 0; // Success
 }
@@ -190,6 +209,7 @@ static int __init taskmon_init(void)
 static void __exit taskmon_exit(void)
 {
     release_kobjects();
+    free_tid_attr_list();
 }
 
 module_init(taskmon_init);
