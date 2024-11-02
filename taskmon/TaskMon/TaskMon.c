@@ -98,6 +98,13 @@ int list_tid_files(void)
 
     while ((dir = readdir(d)) != NULL)
     {
+        // Check if it is a regular file, not like a directory or symlink
+        if (dir->d_type != DT_REG)
+            continue;
+        // Check name is a number by comparing the length of the name with the number of digits
+        if (strspn(dir->d_name, "0123456789") != strlen(dir->d_name))
+            continue;
+
         printf("FILE in dir: %s\n", dir->d_name);
         // Convert filename into absolute path
         snprintf(abs_filepath, sizeof(abs_filepath), "%s/%s", UTIL_DIR, dir->d_name);
@@ -105,7 +112,6 @@ int list_tid_files(void)
         if (read_file(abs_filepath, buffer) < 0)
         {
             fprintf(stderr, "Failed to read file: %s\n", abs_filepath);
-            return -1;
         }
         printf("CONTENT: %s\n", buffer);
     }
