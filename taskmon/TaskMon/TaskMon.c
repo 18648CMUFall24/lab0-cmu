@@ -23,9 +23,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
 
 #define MAX_BUFFER 256
 #define ENABLED_FILE "/sys/rtes/taskmon/enabled"
+#define ENABLED "enabled (1)"
+#define DISABLED "disabled (0)"
 
 // Read file
 int read_file(char *filename, char *buffer)
@@ -75,23 +78,27 @@ void sigquit_handler(int signum)
     if (!file)
     {
         fprintf(stderr, "Failed to open file: %s\n", ENABLED_FILE);
-        return;
+        exit(1);
     }
     // Write to file
     fprintf(file, "%d", enabled);
     // Close file
     fclose(file);
-    printf("Status toggled to %s\n", enabled ? "enabled" : "disabled");
+    printf("Status toggled to %s\n", enabled ? ENABLED : DISABLED);
 }
 
 int main(int argc, char *argv[])
 {
     printf("=== Task Monitor ===\n");
     int enabled = get_enabled();
-    printf("Status: %s\n", enabled ? "enabled (1)" : "disabled (0)");
+    printf("Status: %s\n", enabled ? ENABLED : DISABLED);
     // Toggle status when SIGQUIT is received
     signal(SIGQUIT, sigquit_handler);
-    printf("Press Ctrl+\\ to toggle status to %s\n", enabled ? "disabled" : "enabled");
+    printf("Press Ctrl+\\ to toggle status to %s\n", enabled ? DISABLED : ENABLED);
+
+    while (1) {
+        sleep(1);
+    }
 
     return 0;
 }
