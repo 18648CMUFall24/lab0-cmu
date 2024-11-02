@@ -41,12 +41,6 @@ struct rt_thread
 int parse_cmd_args(int argc, char *argv[], char **cmd, int32_t *tid, int32_t *C, int32_t *T, int32_t *cpuid)
 {
     // Parse and check command line arguments
-    // Command is required
-    if (argc < 2)
-    {
-        printf("Usage: %s <command> [args]\n", argv[0]);
-        return -1;
-    }
 
     // Read the command line arguments
     *cmd = argv[1];
@@ -120,6 +114,14 @@ int main(int argc, char *argv[])
     struct timespec C_ts, T_ts;
     struct rt_thread rt_threads_list[MAX_THREADS]; // use stack memory
 
+
+    // Command is required
+    if (argc < 2)
+    {
+        printf("Usage: %s <command> [args]\n", argv[0]);
+        return -1;
+    }
+
     cmd = argv[1];
     // List real-time threads
     if ((strcmp(cmd, "list") == 0) && argc == 2)
@@ -136,8 +138,8 @@ int main(int argc, char *argv[])
         printf("Set/cancel reservation on one of the listed threads above by:\nset <tid> <C> <T> <cpuid>\ncancel <tid>\n\n");
         // Receive user input
         printf("Enter command: ");
-        char *list_cmd_input;
-        scanf("%s", &list_cmd_input);
+        char list_cmd_input[100];
+        fgets(list_cmd_input, sizeof(list_cmd_input), stdin);
         // Split by space
         char *token = strtok(list_cmd_input, " ");
         int i = 1;
