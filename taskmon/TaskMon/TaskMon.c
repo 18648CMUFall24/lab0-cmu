@@ -141,14 +141,27 @@ void sigquit_handler(int signum)
     fclose(file);
     printf("Status toggled to %s\n", enabled ? ENABLED : DISABLED);
 }
+void setup_sigquit_handler()
+{
+    struct sigaction sa;
+    sa.sa_handler = sigquit_handler;
+    sa.sa_flags = 0;
+    sigemptyset(&sa.sa_mask);
+    if (sigaction(SIGQUIT, &sa, NULL) == -1)
+    {
+        perror("Error setting SIGQUIT handler");
+        exit(1);
+    }
+}
 
 int main(int argc, char *argv[])
 {
+    // Toggle status when SIGQUIT is received
+    setup_sigquit_handler();
+
     printf("====== Task Monitor ======\n");
     int enabled = get_enabled();
     printf("=> Status: %s\n", enabled ? ENABLED : DISABLED);
-    // Toggle status when SIGQUIT is received
-    signal(SIGQUIT, sigquit_handler);
     printf("=> Press Ctrl+\\ to toggle status to %s\n", enabled ? DISABLED : ENABLED);
 
     // UI should compute and display the average utilization of threads with active reserves collected during the session.
