@@ -94,41 +94,7 @@ static ssize_t tid_store(struct kobject *kobj, struct kobj_attribute *attr, cons
  */
 static struct kobj_attribute enabled_attr = __ATTR(enabled, 0660, enabled_show, enabled_store);
 
-// Create the sysfs file /sys/rtes/taskmon/enabled
-int create_enabled_file(void)
-{
-    int ret;
-    // Create a kobject named "rtes" under the kernel kobject
-    rtes_kobj = kobject_create_and_add("rtes", NULL); // use NULL for /sys/ instead of kernel_kobj); which is /sys/kernel
-    if (!rtes_kobj)
-    {
-        printk(KERN_ERR "Failed to create kobject: rtes\n");
-        return -ENOMEM; // Error NO MEMory
-    }
-    // Create a kobject named "taskmon" under the "rtes" kobject
-    taskmon_kobj = kobject_create_and_add("taskmon", rtes_kobj);
-    if (!taskmon_kobj)
-    {
-        printk(KERN_ERR "Failed to create kobject: taskmon\n");
-        kobject_put(rtes_kobj);
-        return -ENOMEM;
-    }
-    // Create a sysfs file named "enabled" under the "taskmon" kobject
-    ret = sysfs_create_file(taskmon_kobj, &enabled_attr.attr);
-    if (ret)
-    {
-        printk(KERN_ERR "Failed to create file: /sys/rtes/taskmon/enabled\n");
-        kobject_put(rtes_kobj);
-        kobject_put(taskmon_kobj);
-        return -1;
-    }
-    printk(KERN_INFO "Created file: /sys/rtes/taskmon/enabled\n");
-    return 0; // Success
-}
-
-// Create /sys/rtes/taskmon/util/<tid>
-int create_tid_file(int tid)
-{
+int init_kobjects(void){
     int ret;
     // Create a kobject named "rtes" under the kernel kobject
     rtes_kobj = kobject_create_and_add("rtes", NULL); // use NULL for /sys/ instead of kernel_kobj); which is /sys/kernel
@@ -154,6 +120,37 @@ int create_tid_file(int tid)
         kobject_put(taskmon_kobj);
         return -ENOMEM;
     }
+    return 0;
+}
+
+int release_kobjects(void) {
+    // Release the kobjects
+    kobject_put(rtes_kobj);
+    kobject_put(taskmon_kobj);
+    kobject_put(util_kobj);
+}
+
+// Create the sysfs file /sys/rtes/taskmon/enabled
+int create_enabled_file(void)
+{
+    int ret;
+    // Create a sysfs file named "enabled" under the "taskmon" kobject
+    ret = sysfs_create_file(taskmon_kobj, &enabled_attr.attr);
+    if (ret)
+    {
+        printk(KERN_ERR "Failed to create file: /sys/rtes/taskmon/enabled\n");
+        kobject_put(rtes_kobj);
+        kobject_put(taskmon_kobj);
+        return -1;
+    }
+    printk(KERN_INFO "Created file: /sys/rtes/taskmon/enabled\n");
+    return 0; // Success
+}
+
+// Create /sys/rtes/taskmon/util/<tid>
+int create_tid_file(int tid)
+{ 
+    int ret;
     // Create a sysfs file named "<tid>" under the "taskmon" kobject
     static struct kobj_attribute tid_attr = __ATTR(tid, 0660, tid_show, tid_store);
     ret = sysfs_create_file(util_kobj, &tid_attr.attr);
@@ -166,18 +163,22 @@ int create_tid_file(int tid)
         return -1;
     }
     printk(KERN_INFO "Created file: /sys/rtes/taskmon/util/%d\n", tid);
-
     return 0; // Success
 }
 
 // Init kernel module
 static int __init taskmon_init(void)
 {
+    int i;
+
+    if (init_kobjects() != 0)
+        return -1;
+
     if (create_enabled_file() != 0)
         return -1;
 
     // Mock create tid files from 0 to 9
-    for (int i = 0; i < 10; i++)
+    for (i = 0; i < 10; i++)
     {
         if (create_tid_file(i) != 0)
             return -1;
@@ -188,10 +189,7 @@ static int __init taskmon_init(void)
 // Exit kernel module
 static void __exit taskmon_exit(void)
 {
-    // Release the kobjects
-    kobject_put(rtes_kobj);
-    kobject_put(taskmon_kobj);
-    kobject_put(util_kobj);
+    release_kobjects();
 }
 
 module_init(taskmon_init);
