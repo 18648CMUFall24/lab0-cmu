@@ -88,10 +88,13 @@ int get_enabled(void)
 int list_tid_files(void)
 {
     DIR *d;
+    FILE *file;
     struct dirent *dir;
     char buffer[MAX_BUFFER];
     char abs_filepath[MAX_BUFFER];
-    float time_num = 0.0, util_num = 0.0;
+    char tids_str[MAX_BUFFER];
+    float time_num = 0.0, util_num = 0.0, avg_util = 0.0;
+    int i = 0;
 
     d = opendir(UTIL_DIR);
     if (!d)
@@ -99,7 +102,6 @@ int list_tid_files(void)
         fprintf(stderr, "Failed to open directory: %s\n", UTIL_DIR);
         exit(1);
     }
-
     while ((dir = readdir(d)) != NULL)
     {
         // Check if it is a regular file, not like a directory or symlink
@@ -108,22 +110,32 @@ int list_tid_files(void)
         // Check name is a number by comparing the length of the name with the number of digits
         if (strspn(dir->d_name, "0123456789") != strlen(dir->d_name))
             continue;
-
-        printf("FILE in dir: %s\n", dir->d_name);
+        strcat(tids_str, ", ");        // Add comma and space
+        strcat(tids_str, dir->d_name); // Append TID to string
         // Convert filename into absolute path
         snprintf(abs_filepath, sizeof(abs_filepath), "%s/%s", UTIL_DIR, dir->d_name);
         // Read file content into buffer
-        FILE *file;
         // Open file
         if (!(file = fopen(abs_filepath, "r")))
             fprintf(stderr, "Failed to open file: %s\n", abs_filepath);
         // Read file
-        while (fgets(buffer, sizeof(buffer), file) != NULL) {
+        while (fgets(buffer, sizeof(buffer), file) != NULL)
+        {
             // Process line: <time> <util>\n
-            if (sscanf(buffer, "%f %f\n", &time_num, &util_num) != 2) {
+            if (sscanf(buffer, "%f %f\n", &time_num, &util_num) != 2)
+            {
                 perror("Failed to extract values from util/<tid> file\n");
-            } 
+            }
+            // Add util to avg
+            avg_util += util_num;
+            i++; // Track number of entries
         }
+        // Take average of util
+        avg_util /= i;
+
+        // Print out average utilization and TIDs
+        printf("| %.2f | %s \n", avg_util, tids_str);
+
         // Close file
         fclose(file);
     }
@@ -175,7 +187,7 @@ int main(int argc, char *argv[])
 
     // UI should compute and display the average utilization of threads with active reserves collected during the session.
     list_tid_files();
-    printf("| TIDs                 | Avg Util |\n");
+    printf("| Avg Util | TIDs |\n");
     while (1)
     {
         sleep(1);
