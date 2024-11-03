@@ -85,14 +85,14 @@ int get_enabled(void)
     return enabled;
 }
 
-int list_tid_files(void)
+int print_avg_util(void)
 {
     DIR *d;
     FILE *file;
     struct dirent *dir;
     char buffer[MAX_BUFFER];
     char abs_filepath[MAX_BUFFER];
-    char tids_str[MAX_BUFFER];
+    char tids_str[MAX_BUFFER] = "";
     float time_num = 0.0, util_num = 0.0, avg_util = 0.0;
     int i = 0;
 
@@ -130,15 +130,14 @@ int list_tid_files(void)
             avg_util += util_num;
             i++; // Track number of entries
         }
-        // Take average of util
-        avg_util /= i;
-
-        // Print out average utilization and TIDs
-        printf("| %.2f | %s \n", avg_util, tids_str);
 
         // Close file
         fclose(file);
     }
+    // Take average of util
+    avg_util /= i;
+    // Print out average utilization and TIDs
+    printf("| %.2f | %s \n", avg_util, tids_str);
     closedir(d);
     return 0; // Success
 }
@@ -186,10 +185,15 @@ int main(int argc, char *argv[])
     printf("=> Press Ctrl+\\ to toggle status to %s\n", enabled ? DISABLED : ENABLED);
 
     // UI should compute and display the average utilization of threads with active reserves collected during the session.
-    list_tid_files();
     printf("| Avg Util | TIDs |\n");
     while (1)
     {
+        if (get_enabled() > 0)
+        {
+            // Only print out avg util and tids if enabled
+            print_avg_util();
+        }
+
         sleep(1);
     }
 
