@@ -75,7 +75,7 @@ int read_file(char *filename, char *buffer)
 
 int get_enabled(void)
 {
-    char buffer[MAX_BUFFER];
+    char buffer[1];
     int enabled;
     // Read file
     if (read_file(ENABLED_FILE, buffer) < 0)
@@ -91,6 +91,7 @@ int list_tid_files(void)
     struct dirent *dir;
     char buffer[MAX_BUFFER];
     char abs_filepath[MAX_BUFFER];
+    float time_num = 0.0, util_num = 0.0;
 
     d = opendir(UTIL_DIR);
     if (!d)
@@ -112,9 +113,19 @@ int list_tid_files(void)
         // Convert filename into absolute path
         snprintf(abs_filepath, sizeof(abs_filepath), "%s/%s", UTIL_DIR, dir->d_name);
         // Read file content into buffer
-        if (read_file(abs_filepath, buffer) < 0)
-            exit(1);
-        printf("CONTENT: %s\n", buffer);
+        FILE *file;
+        // Open file
+        if (!(file = fopen(abs_filepath, "r")))
+            fprintf(stderr, "Failed to open file: %s\n", abs_filepath);
+        // Read file
+        while (fgets(buffer, sizeof(buffer), file) != NULL) {
+            // Process line: <time> <util>\n
+            if (sscanf(buffer, "%f %f\n", &time_num, &util_num) != 2) {
+                perror("Failed to extract values from util/<tid> file\n");
+            } 
+        }
+        // Close file
+        fclose(file);
     }
     closedir(d);
     return 0; // Success
