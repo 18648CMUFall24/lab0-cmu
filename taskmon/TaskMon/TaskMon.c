@@ -110,8 +110,8 @@ int print_avg_util(void)
         // Check name is a number by comparing the length of the name with the number of digits
         if (strspn(dir->d_name, "0123456789") != strlen(dir->d_name))
             continue;
-        strcat(tids_str, ", ");        // Add comma and space
         strcat(tids_str, dir->d_name); // Append TID to string
+        strcat(tids_str, ", ");        // Add comma and space
         // Convert filename into absolute path
         snprintf(abs_filepath, sizeof(abs_filepath), "%s/%s", UTIL_DIR, dir->d_name);
         // Read file content into buffer
@@ -137,7 +137,7 @@ int print_avg_util(void)
     // Take average of util
     avg_util /= i;
     // Print out average utilization and TIDs
-    printf("| %.2f | %s \n", avg_util, tids_str);
+    printf("|   %.2f   | %s \n", avg_util, tids_str);
     closedir(d);
     return 0; // Success
 }
