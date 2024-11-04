@@ -87,8 +87,8 @@ enum hrtimer_restart reservation_timer_callback(struct hrtimer *timer) {
         }
     }
 
-    // Calculate utilization as a per mille value (e.g., 500 means 50%)
-    utilization = div64_u64(exec_ns * 1000, period_ns);
+    // Calculate utilization 
+    utilization = div64_u64(exec_ns, period_ns);
     res_data->period_count++;  // Increment the period count
 
     // Collect utilization data if monitoring is enabled
@@ -99,6 +99,8 @@ enum hrtimer_restart reservation_timer_callback(struct hrtimer *timer) {
             point->utilization = utilization; 
             spin_lock_irqsave(&res_data->data_lock, flags);
             list_add_tail(&point->list, &res_data->data_points);
+            printk(KERN_INFO "Added data point for PID: %d, timestamp=%llu, utilization=%llu\n",
+                   res_data->task->pid, point->timestamp, point->utilization);
             spin_unlock_irqrestore(&res_data->data_lock, flags);
         } else {
             printk(KERN_ERR "Failed to allocate memory for data point\n");

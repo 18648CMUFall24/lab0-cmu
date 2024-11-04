@@ -222,7 +222,7 @@ int create_tid_file(struct task_struct *task)
     int ret;
     struct kobj_attribute *tid_attr;
     struct tid_attr_node *new_node;
-    struct reservation_data *res_data = task->reservation_data;
+    // struct reservation_data *res_data = task->reservation_data;
     char tid_str[10];
 
     // Allocate memory for the attribute
@@ -238,22 +238,22 @@ int create_tid_file(struct task_struct *task)
     tid_attr->show = tid_show;
     tid_attr->store = NULL;
 
-    // Store the kobject in the task struct
-    res_data->taskmon_kobj = kobject_create_and_add(tid_str, util_kobj);
-    if (!res_data->taskmon_kobj)
-    {
-        printk(KERN_ERR "Failed to create kobject for task %d\n", task->pid);
-        kfree(tid_attr->attr.name);
-        kfree(tid_attr);
-        return -ENOMEM;
-    }
+    // // Store the kobject in the task struct
+    // res_data->taskmon_kobj = kobject_create_and_add(tid_str, util_kobj);
+    // if (!res_data->taskmon_kobj)
+    // {
+    //     printk(KERN_ERR "Failed to create kobject for task %d\n", task->pid);
+    //     kfree(tid_attr->attr.name);
+    //     kfree(tid_attr);
+    //     return -ENOMEM;
+    // }
 
     // Create the sysfs file
-    ret = sysfs_create_file(res_data->taskmon_kobj, &tid_attr->attr);
+    ret = sysfs_create_file(util_kobj, &tid_attr->attr);
     if (ret)
     {
         printk(KERN_ERR "Failed to create file: /sys/rtes/taskmon/util/%d\n", task->pid);
-        kobject_put(res_data->taskmon_kobj);
+        kobject_put(util_kobj);
         kfree(tid_attr->attr.name);
         kfree(tid_attr);
         return ret;
@@ -296,8 +296,6 @@ int remove_tid_file(struct task_struct *task) {
         if (strcmp(node->attr->attr.name, kobject_name(res_data->taskmon_kobj)) == 0) {
             // Remove the sysfs file
             sysfs_remove_file(res_data->taskmon_kobj, &node->attr->attr);
-            kobject_put(res_data->taskmon_kobj);
-            res_data->taskmon_kobj = NULL;
 
             // Remove node from the list and free memory
             if (prev) {
