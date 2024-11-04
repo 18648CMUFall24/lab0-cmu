@@ -93,6 +93,8 @@ struct sched_param {
 
 #include <asm/processor.h>
 
+#include <linux/reservation.h>
+
 struct exec_domain;
 struct futex_pi_state;
 struct robust_list_head;
@@ -1237,20 +1239,7 @@ struct task_struct {
 	struct sched_rt_entity rt;
 
 	/* Reservation Framework parameters*/
-	struct timespec reserve_C;
-	struct timespec reserve_T;
-	struct hrtimer reservation_timer;
-	bool has_reservation;
-
-	/* Computation time tracking */
-	struct timespec exec_start_time;			// timestamp of task start
-	struct timespec exec_accumulated_time;		// accumulated execution time
-
-	/* TaskMon parameters */
-	bool monitoring_enabled;
-	struct kobject *taskmon_kobj;
-	struct spinlock data_mutex;
-	struct list_head data_points;
+	struct reservation_data *reservation_data;
 
 #ifdef CONFIG_PREEMPT_NOTIFIERS
 	/* list of struct preempt_notifier: */

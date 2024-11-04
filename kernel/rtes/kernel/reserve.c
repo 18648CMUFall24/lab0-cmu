@@ -26,30 +26,60 @@
 #include <linux/ktime.h>
 #include <linux/reservation.h>
 #include <linux/sysfs.h>
+#include <linux/spinlock.h>
 
+struct reservation_data *create_reservation_data(struct task_struct *task) {
+    struct reservation_data *res_data;
 
+    // Allocate memory for the reservation data
+    res_data = kmalloc(sizeof(struct reservation_data), GFP_KERNEL);
+    if (!res_data)
+        return NULL;
+
+    // Initialize all fields in reservation data
+    memset(res_data, 0, sizeof(struct reservation_data));
+    INIT_LIST_HEAD(&res_data->data_points);
+    spin_lock_init(&res_data->data_lock);
+    res_data->taskmon_kobj = NULL;
+    res_data->has_reservation = false;
+    res_data->monitoring_enabled = false;
+
+    // Link reservation data to the task
+    task->reservation_data = res_data;
+
+    return res_data;
+}
+
+/** called periodically by the high-resolution timer with eachh task having an active reservation
+ *  1. check if the task has overrun its budget
+ *  2. send SIGEXCESS signal to the task if overrun detected
+ *  3. collect utilization data if monitoring is enabled, store the data in the task's data_points list
+ * 
+*/
 enum hrtimer_restart reservation_timer_callback(struct hrtimer *timer) {
-    struct task_struct *task = container_of(timer, struct task_struct, reservation_timer); // get the address of the task strcut that contain this timer
-    struct timespec budget = task->reserve_C;
-    struct timespec period = task->reserve_T;
-    struct timespec exec_time = task->exec_accumulated_time;
+    struct reservation_data *res_data = container_of(timer, struct reservation_data, reservation_timer);
+    struct task_struct *task = res_data->task;  // Get the associated task
+    struct timespec budget = res_data->reserve_C;
+    struct timespec exec_time = res_data->exec_accumulated_time;
     struct data_point *point;
     struct timespec zero = {0, 0};
-    u64 budget_ns = timespec_to_ns(&task->reserve_C);;
-    u64 exec_ns = timespec_to_ns(&task->exec_accumulated_time);
+    unsigned long flags;
+    u64 budget_ns, exec_ns, period_ns, utilization;
+
+    budget_ns = timespec_to_ns(&res_data->reserve_C);
+    exec_ns = timespec_to_ns(&res_data->exec_accumulated_time);
+    period_ns = timespec_to_ns(&res_data->reserve_T);
+
     printk(KERN_INFO "reservation_timer_callback: PID %d accumulated execution time: %llu ns\n",
-       task->pid, exec_ns);
+           task->pid, exec_ns);
 
     if (timespec_compare(&exec_time, &budget) > 0) {
-        // send SIGEXCESS signal to process
+        // Send SIGEXCESS signal to process
         struct siginfo info; 
         memset(&info, 0, sizeof(struct siginfo));
         info.si_signo = SIGEXCESS;
         info.si_code = SI_KERNEL;
-        printk(KERN_WARNING "Budget overrun detected for PID %d: execution time %llu ns exceeded budget %llu ns\n",
-               task->pid, task->exec_accumulated_time, budget_ns);
 
-        /* Send the signal to the task's process */
         if (send_sig_info(SIGEXCESS, &info, task) < 0) {
             printk(KERN_ERR "Failed to send SIGEXCESS to PID %d\n", task->pid);
         } else {
@@ -57,31 +87,34 @@ enum hrtimer_restart reservation_timer_callback(struct hrtimer *timer) {
         }
     }
 
-    // utilization = (exec_time / period) * scaling_factor
-    u64 exec_ns = timespec_to_ns(&exec_time);
-    u64 period_ns = timespec_to_ns(&period);
-    u32 utilization = div64_u64(exec_ns * 1000, period_ns);
-    task->exec_accumulated_time = zero;     // timespec is zeroed
+    // Calculate utilization as a per mille value (e.g., 500 means 50%)
+    utilization = div64_u64(exec_ns * 1000, period_ns);
+    res_data->period_count++;  // Increment the period count
 
-    // collect utilization data if monitoring is enabled
-    if (task->monitoring_enabled) {
+    // Collect utilization data if monitoring is enabled
+    if (res_data->monitoring_enabled) {
         point = kmalloc(sizeof(*point), GFP_ATOMIC);
         if (point) {
-            getrawmonotonic(&point->timestamp);
-            point->utilization = exec_time;
-
-            mutex_lock(&task->data_lock);
-            list_add_tail(&point->list, &task->data_points);
-            mutex_unlock(&task->data_lock);
+            point->timestamp = div64_u64((u64)res_data->period_count * timespec_to_ns(&res_data->reserve_T), 1000000); // Convert to ms
+            point->utilization = utilization; 
+            spin_lock_irqsave(&res_data->data_lock, flags);
+            list_add_tail(&point->list, &res_data->data_points);
+            spin_unlock_irqrestore(&res_data->data_lock, flags);
+        } else {
+            printk(KERN_ERR "Failed to allocate memory for data point\n");
         }
     }
 
-    hrtimer_forward_now(timer, timespec_to_ktime(task->reserve_T)); // forward timer to next period
-    return HRTIMER_RESTART; // trigger periodically
+    res_data->exec_accumulated_time = zero;  // Reset accumulated time
+
+    hrtimer_forward_now(timer, timespec_to_ktime(res_data->reserve_T));  // Forward timer to next period
+    return HRTIMER_RESTART;
 }
+
 
 SYSCALL_DEFINE4(set_reserve, pid_t, pid, struct timespec __user *, C, struct timespec __user *, T, int, cpuid) {
     struct task_struct *task;
+    struct reservation_data *res_data;
     struct timespec c, t;
     int ret;
     cpumask_t cpumask;
@@ -115,22 +148,34 @@ SYSCALL_DEFINE4(set_reserve, pid_t, pid, struct timespec __user *, C, struct tim
         rcu_read_unlock();
     }
 
-    if (task->has_reservation) {
-        hrtimer_cancel(&task->reservation_timer);
+    if (!task->reservation_data) {
+        res_data = create_reservation_data(task);
+        if (!res_data) {
+            if (pid != 0) {
+                put_task_struct(task);
+            }
+            return -ENOMEM;
+        }
+    } else {
+        res_data = task->reservation_data;
+        hrtimer_cancel(&res_data->reservation_timer);  // Cancel existing timer if present
     }
 
     // inti monitoring data
-    task->monitoring_enabled = taskmon_enabled;
-    mutex_init(&task->data_mutex);
-    INIT_LIST_HEAD(&task->data_points);
+    res_data->reserve_C = c;
+    res_data->reserve_T = t;
+    res_data->has_reservation = true;
+    res_data->task = task;
 
     // Create per-thread sysfs file if monitoring is enabled
-    if (task->monitoring_enabled)
+    if (res_data->monitoring_enabled) {
         create_tid_file(task);
+    }
 
-    task->exec_accumulated_time = (struct timespec){0, 0};
-    task->exec_start_time = (struct timespec){0, 0};
+    res_data->exec_accumulated_time = (struct timespec){0, 0};
+    res_data->exec_start_time = (struct timespec){0, 0};
 
+  
     // set specified cpu
     cpumask_clear(&cpumask);
     cpumask_set_cpu(cpuid, &cpumask);
@@ -142,18 +187,12 @@ SYSCALL_DEFINE4(set_reserve, pid_t, pid, struct timespec __user *, C, struct tim
         }
         return ret;
     }
-
-    spin_lock(&task->alloc_lock);
-    // store the paremeters in the task struct
-    task->reserve_C = c;
-    task->reserve_T = t;
-    task->has_reservation = true;
     
     // initialize a high resolution timer trigger periodically T units
-    hrtimer_init(&task->reservation_timer, CLOCK_MONOTONIC, HRTIMER_MODE_PINNED);
-    task->reservation_timer.function = reservation_timer_callback;
-    hrtimer_start(&task->reservation_timer, timespec_to_ktime(t), HRTIMER_MODE_PINNED);
-    spin_unlock(&task->alloc_lock);
+    hrtimer_init(&res_data->reservation_timer, CLOCK_MONOTONIC, HRTIMER_MODE_PINNED);
+    res_data->reservation_timer.function = reservation_timer_callback;
+    res_data->task = task;  // Link task to reservation data for callback
+    hrtimer_start(&res_data->reservation_timer, timespec_to_ktime(t), HRTIMER_MODE_PINNED);
 
     if (pid != 0) 
         put_task_struct(task);
@@ -168,6 +207,7 @@ SYSCALL_DEFINE4(set_reserve, pid_t, pid, struct timespec __user *, C, struct tim
 //remove the thread
 SYSCALL_DEFINE1(cancel_reserve, pid_t, pid) {
     struct task_struct *task;
+    struct reservation_data *res_data;
     // retrieve the task
     if (pid == 0) {
         task = current;
@@ -183,29 +223,24 @@ SYSCALL_DEFINE1(cancel_reserve, pid_t, pid) {
     }
 
     // check if the reservation exist
-    if (!task->has_reservation) {
-        if(pid != 0) {
+    res_data = task->reservation_data;
+    if (!res_data || !res_data->has_reservation) {
+        if (pid != 0) {
             put_task_struct(task);
         }
         return -EINVAL;
     }
 
     // cancel hrtimer
-    hrtimer_cancel(&task->reservation_timer);
+    hrtimer_cancel(&res_data->reservation_timer);
 
     // clear up reservation parameters
-    task->reserve_C = (struct timespec){0, 0};
-    task->reserve_T = (struct timespec){0, 0};
-    task->has_reservation = false;
-
+    res_data->reserve_C = (struct timespec){0, 0};
+    res_data->reserve_T = (struct timespec){0, 0};
+    res_data->has_reservation = false;
     set_cpus_allowed_ptr(task, cpu_all_mask);
 
-    if (task->rtes_kobj) {
-        sysfs_remove_file(task->rtes_kobj, &task->tid_attr.attr);
-        kobject_put(task->rtes_kobj);
-        task->rtes_kobj = NULL;
-    }
-
+   
     cleanup_utilization_data(task);
 
     if (pid != 0) 

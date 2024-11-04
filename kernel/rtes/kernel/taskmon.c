@@ -9,6 +9,14 @@
  *   - https://www.kernel.org/doc/Documentation/kobject.txt
  *   - https://pradheepshrinivasan.github.io/2015/07/02/Creating-an-simple-sysfs/
  *
+ * Requirements:
+ *  1. Create a sysfs file /sys/rtes/taskmon/enabled that can be used to enable or disable the task monitoring
+ *     functionality. The file should be writable and readable. When enabled, the kernel should start collecting
+ *     utilization values for threads with active reservations. When disabled, the kernel should stop collecting
+ *     utilization values.
+ *  2. Create a sysfs file /sys/rtes/taskmon/util/<TID> that can be used to read the utilization values for a
+ *     thread with the given TID. The file should be readable and should return the utilization values for the
+ *     thread in the following format: (ms, util)
  */
 
 #include <linux/init.h>
@@ -20,11 +28,11 @@
 #include <linux/sched.h>
 #include <linux/uaccess.h>
 #include <linux/rcupdate.h>
+#include <linux/spinlock.h>
 #include <linux/reservation.h> // For struct data_point
 
 
-
-static bool taskmon_enabled = false;
+bool taskmon_enabled = false;
 static struct kobject *rtes_kobj;    // kobject for /rtes
 static struct kobject *taskmon_kobj; // kobject for /rtes/taskmon
 static struct kobject *util_kobj;    // kobject for /rtes/taskmon/util
@@ -69,28 +77,19 @@ static ssize_t enabled_store(struct kobject *kobj, struct kobj_attribute *attr, 
     return count;
 }
 
-static void taskmon_release(struct kobject *kobj)
-{
-    // Release the kobject
-    kobject_put(kobj);
-}
-
-static struct kobj_type taskmon_ktype = {
-    .release = taskmon_release,
-    .sysfs_ops = &kobj_sysfs_ops,
-};
-
 // When the user reads the sysfs file
 static ssize_t tid_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
 {
     // // Return the current value of taskmon_enabled as 0 or 1
     // return sprintf(buf, "%s\n%s\n%s\n", "10 0.5", "14 0.25", "18 0.25");
     struct task_struct *task;
+    struct reservation_data *res_data;
     struct data_point *point;
     ssize_t len = 0;
     ssize_t temp_len;
     char temp[100];
     pid_t pid;
+    unsigned long flags;
 
     // Get the PID from the kobject's name
     if (kstrtoint(kobject_name(kobj), 10, &pid) != 0)
@@ -106,19 +105,24 @@ static ssize_t tid_show(struct kobject *kobj, struct kobj_attribute *attr, char 
     get_task_struct(task);
     rcu_read_unlock();
 
-    mutex_lock(&task->data_mutex);
-    list_for_each_entry(point, &task->data_points, list)
+    res_data = task->reservation_data;      // Get the reservation data
+    if (!res_data) {
+        put_task_struct(task);
+        return -EINVAL;
+    }
+    
+    spin_lock_irqsave(&res_data->data_lock, flags);
+    list_for_each_entry(point, &res_data->data_points, list)
     {
-        temp_len = snprintf(temp, sizeof(temp), "%lld.%09ld %llu\n",
-                    (long long)point->timestamp.tv_sec, point->timestamp.tv_nsec,
-                    point->utilization);
+        temp_len = snprintf(temp, sizeof(temp), "%llu %llu\n",
+                    point->timestamp, point->utilization);
 
         if (len + temp_len > PAGE_SIZE)
             break;
         memcpy(buf + len, temp, temp_len);
         len += temp_len;
     }
-    mutex_unlock(&task->data_mutex);
+    spin_unlock_irqrestore(&res_data->data_lock, flags);
     put_task_struct(task);
     return len;
 }
@@ -178,14 +182,14 @@ void release_kobjects(void)
 // free the tid_attr_list
 void free_tid_attr_list(void)
 {
+    struct tid_attr_node *node, *next;
     mutex_lock(&tid_attr_list_mutex);
-    struct tid_attr_node *node = tid_attr_list;
-    struct tid_attr_node *next;
+    node = tid_attr_list;
 
     while (node)
     {
         next = node->next;
-        sysfs_remove_file((task->taskmon_kobj, &node->attr->attr);)
+        sysfs_remove_file(util_kobj, &node->attr->attr);
         kfree(node->attr->attr.name);
         kfree(node->attr);
         kfree(node);
@@ -218,6 +222,7 @@ int create_tid_file(struct task_struct *task)
     int ret;
     struct kobj_attribute *tid_attr;
     struct tid_attr_node *new_node;
+    struct reservation_data *res_data = task->reservation_data;
     char tid_str[10];
 
     // Allocate memory for the attribute
@@ -233,19 +238,9 @@ int create_tid_file(struct task_struct *task)
     tid_attr->show = tid_show;
     tid_attr->store = NULL;
 
-    // Create the sysfs file
-    ret = sysfs_create_file(task->taskmon_kobj, &tid_attr->attr);
-    if (ret)
-    {
-        printk(KERN_ERR "Failed to create file: /sys/rtes/taskmon/util/%d\n", task->pid);
-        kobject_put(task->taskmon_kobj);
-        kfree(tid_attr->attr.name);
-        kfree(tid_attr);
-        return ret;
-    }
     // Store the kobject in the task struct
-    task->taskmon_kobj = kobject_create_and_add(tid_str, util_kobj);
-    if (!task->taskmon_kobj)
+    res_data->taskmon_kobj = kobject_create_and_add(tid_str, util_kobj);
+    if (!res_data->taskmon_kobj)
     {
         printk(KERN_ERR "Failed to create kobject for task %d\n", task->pid);
         kfree(tid_attr->attr.name);
@@ -253,9 +248,17 @@ int create_tid_file(struct task_struct *task)
         return -ENOMEM;
     }
 
-    task->taskmon_kobj->ktype = &taskmon_ktype;
-    kobject_set_name(task->taskmon_kobj, "%d", task->pid);
-
+    // Create the sysfs file
+    ret = sysfs_create_file(res_data->taskmon_kobj, &tid_attr->attr);
+    if (ret)
+    {
+        printk(KERN_ERR "Failed to create file: /sys/rtes/taskmon/util/%d\n", task->pid);
+        kobject_put(res_data->taskmon_kobj);
+        kfree(tid_attr->attr.name);
+        kfree(tid_attr);
+        return ret;
+    }
+    
     // Add attribute to the list
     new_node = kzalloc(sizeof(*new_node), GFP_KERNEL);
     if (!new_node)
@@ -275,19 +278,69 @@ int create_tid_file(struct task_struct *task)
     return 0; // Success
 }
 
+// remove /sys/rtes/taskmon/util/<tid>
+int remove_tid_file(struct task_struct *task) {
+    struct reservation_data *res_data = task->reservation_data;
+    struct tid_attr_node *node, *prev = NULL;
+    int ret = -ENOENT;
+
+    if (!res_data || !res_data->taskmon_kobj) {
+        return -EINVAL; // Task does not have an associated kobject.
+    }
+
+    mutex_lock(&tid_attr_list_mutex);
+
+    // Find the tid_attr_node associated with the task's kobject name
+    node = tid_attr_list;
+    while (node) {
+        if (strcmp(node->attr->attr.name, kobject_name(res_data->taskmon_kobj)) == 0) {
+            // Remove the sysfs file
+            sysfs_remove_file(res_data->taskmon_kobj, &node->attr->attr);
+            kobject_put(res_data->taskmon_kobj);
+            res_data->taskmon_kobj = NULL;
+
+            // Remove node from the list and free memory
+            if (prev) {
+                prev->next = node->next;
+            } else {
+                tid_attr_list = node->next;
+            }
+
+            kfree(node->attr->attr.name);
+            kfree(node->attr);
+            kfree(node);
+
+            ret = 0; // Success
+            break;
+        }
+        prev = node;
+        node = node->next;
+    }
+
+    mutex_unlock(&tid_attr_list_mutex);
+    return ret;
+}
+
+
 // Clean up utilization data for a task
 void cleanup_utilization_data(struct task_struct *task)
 {
+    struct reservation_data *res_data = task->reservation_data;
+    unsigned long flags;
     struct data_point *point, *tmp;
 
-    mutex_lock(&task->data_mutex);
+    spin_lock_irqsave(&res_data->data_lock, flags);
 
-    list_for_each_entry_safe(point, tmp, &task->data_points, list) {
+    list_for_each_entry_safe(point, tmp, &res_data->data_points, list) {
         list_del(&point->list);
         kfree(point);
     }
 
-    mutex_unlock(&task->data_mutex);
+    spin_unlock_irqrestore(&res_data->data_lock, flags);
+
+    if (res_data->taskmon_kobj) {
+        remove_tid_file(task);
+    }
 }
 
 /// Enable monitoring for all tasks with reservations
@@ -297,10 +350,10 @@ void enable_monitoring_for_all_tasks(void)
 
     read_lock(&tasklist_lock);
     for_each_process(task) {
-        if (task->has_reservation) {
-            task->monitoring_enabled = true;
-            mutex_init(&task->data_mutex);
-            INIT_LIST_HEAD(&task->data_points);
+        if (task->reservation_data && task->reservation_data->has_reservation) {
+            task->reservation_data->monitoring_enabled = true;
+            spin_lock_init(&task->reservation_data->data_lock);
+            INIT_LIST_HEAD(&task->reservation_data->data_points);
             create_tid_file(task);
         }
     }
@@ -314,21 +367,16 @@ void disable_monitoring_for_all_tasks(void)
 
     read_lock(&tasklist_lock);
     for_each_process(task) {
-        if (task->has_reservation) {
-            task->monitoring_enabled = false;
-            if (task->taskmon_kobj) {
-                sysfs_remove_file(task->taskmon_kobj, &enabled_attr.attr);
-                kobject_put(task->taskmon_kobj);
-                task->taskmon_kobj = NULL;
-            }
+        if (task->reservation_data && task->reservation_data->has_reservation) {
+            task->reservation_data->monitoring_enabled = false;
             cleanup_utilization_data(task);
         }
     }
     read_unlock(&tasklist_lock);
 
-    // Clean up the tid attribute list
     free_tid_attr_list();
 }
+
 
 // init function called during kernel startup
 void __init init_taskmon(void)
@@ -354,9 +402,3 @@ void cleanup_taskmon(void)
     release_kobjects();
 }
 
-EXPORT_SYMBOL(taskmon_enabled);
-EXPORT_SYMBOL(init_taskmon);
-EXPORT_SYMBOL(create_tid_file);
-EXPORT_SYMBOL(cleanup_utilization_data);
-EXPORT_SYMBOL(enable_monitoring_for_all_tasks);
-EXPORT_SYMBOL(disable_monitoring_for_all_tasks);

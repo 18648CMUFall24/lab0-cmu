@@ -984,11 +984,19 @@ NORET_TYPE void do_exit(long code)
 	exit_files(tsk);
 	exit_fs(tsk);
 	// for reservation framework
-	if (tsk->has_reservation) {
-		hrtimer_cancel(&tsk->reservation_timer);
-		tsk->has_reservation = false;
-		memset(&tsk->reserve_C, 0, sizeof(struct timespec));
-    	memset(&tsk->reserve_T, 0, sizeof(struct timespec));
+	if (tsk->reservation_data && tsk->reservation_data->has_reservation) {
+		struct reservation_data *res_data = tsk->reservation_data;
+
+		// Cancel the high-resolution timer associated with the reservation
+		hrtimer_cancel(&res_data->reservation_timer);
+		res_data->has_reservation = false;
+		
+		// Reset reservation parameters
+		memset(&res_data->reserve_C, 0, sizeof(struct timespec));
+		memset(&res_data->reserve_T, 0, sizeof(struct timespec));
+
+		// Cleanup utilization data and sysfs file for this task
+		cleanup_utilization_data(tsk);
 	}
 
 	check_stack_usage();
