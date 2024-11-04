@@ -1241,11 +1241,16 @@ struct task_struct {
 	struct timespec reserve_T;
 	struct hrtimer reservation_timer;
 	bool has_reservation;
-	u64 prev_exec_time;			// execution time at the start of period
 
 	/* Computation time tracking */
-	u64 exec_start_time;		// timestamp of task start
-	u64 exec_accumulated_time;		// accumulated execution time
+	struct timespec exec_start_time;			// timestamp of task start
+	struct timespec exec_accumulated_time;		// accumulated execution time
+
+	/* TaskMon parameters */
+	bool monitoring_enabled;
+	struct kobject *taskmon_kobj;
+	struct spinlock data_mutex;
+	struct list_head data_points;
 
 #ifdef CONFIG_PREEMPT_NOTIFIERS
 	/* list of struct preempt_notifier: */

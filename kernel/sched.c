@@ -73,6 +73,7 @@
 #include <linux/slab.h>
 #include <linux/cpuacct.h>
 #include <asm/sched_clock.h>
+#include <linux/time.h>
 
 #include <asm/tlb.h>
 #include <asm/irq_regs.h>
@@ -3026,11 +3027,13 @@ prepare_task_switch(struct rq *rq, struct task_struct *prev,
 	prepare_lock_switch(rq, next);
 	prepare_arch_switch(next);
 
+	/* accumulator tracker */
 	if (next && next->has_reservation) {
-		next->exec_start_time = local_clock();
+		getrawmonotonic(&next->exec_start_time);
 		printk(KERN_DEBUG "prepare_task_switch: PID %d exec_start_time set to %llu\n",
                next->pid, next->exec_start_time);
 	}
+
 	trace_sched_switch(prev, next);
 }
 
@@ -3082,11 +3085,10 @@ static void finish_task_switch(struct rq *rq, struct task_struct *prev)
 	/* accumulator tracker */
 	if (prev && prev->has_reservation) {
 		printk(KERN_INFO"Enter finish task switch for PID %d", prev->pid);
-		u64 now = local_clock();
-		u64 period = now - prev->exec_start_time;
-		prev->exec_accumulated_time += period;
-		printk(KERN_DEBUG "finish_task_switch: PID %d accumulated %llu ns (delta %llu ns)\n",
-               prev->pid, prev->exec_accumulated_time, period);
+		struct timespec now, delta;
+		getrawmonotonic(&now);
+		delta = timespec_sub(now, prev->exec_start_time);
+		prev->exec_accumulated_time = timespec_add(prev->exec_accumulated_time, delta);
 	}
 
 	fire_sched_in_preempt_notifiers(current);
