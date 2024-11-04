@@ -379,21 +379,23 @@ void disable_monitoring_for_all_tasks(void)
 
 
 // init function called during kernel startup
-void __init init_taskmon(void)
+static int __init init_taskmon(void)
 {
     int ret;
 
     ret = init_kobjects();
     if (ret != 0) {
         printk(KERN_ERR "Failed to initialize taskmon kobjects\n");
-        return;
+        return ret;
     }
 
     ret = create_enabled_file();
     if (ret != 0) {
         printk(KERN_ERR "Failed to create enabled file\n");
-        return;
+        return ret;
     }
+    printk(KERN_INFO "Taskmon loaded in the kernel\n");
+    return 0;
 }
 
 void cleanup_taskmon(void)
@@ -402,3 +404,4 @@ void cleanup_taskmon(void)
     release_kobjects();
 }
 
+core_initcall(init_taskmon);

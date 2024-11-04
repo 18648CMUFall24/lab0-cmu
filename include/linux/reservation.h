@@ -39,7 +39,6 @@ struct reservation_data {
 
 // Function declarations
 extern bool taskmon_enabled;
-void init_taskmon(void);
 int create_tid_file(struct task_struct *task);
 void cleanup_utilization_data(struct task_struct *task);
 void enable_monitoring_for_all_tasks(void);

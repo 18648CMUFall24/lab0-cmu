@@ -3030,9 +3030,9 @@ prepare_task_switch(struct rq *rq, struct task_struct *prev,
 	/* accumulator tracker */
 	if (next && next->reservation_data && next->reservation_data->has_reservation) {
         getrawmonotonic(&next->reservation_data->exec_start_time);
-        printk(KERN_DEBUG "prepare_task_switch: PID %d exec_start_time set to %ld.%09ld\n",
-               next->pid, next->reservation_data->exec_start_time.tv_sec,
-               next->reservation_data->exec_start_time.tv_nsec);
+        // printk(KERN_DEBUG "prepare_task_switch: PID %d exec_start_time set to %ld.%09ld\n",
+        //        next->pid, next->reservation_data->exec_start_time.tv_sec,
+        //        next->reservation_data->exec_start_time.tv_nsec);
     }
 	trace_sched_switch(prev, next);
 }
@@ -3085,7 +3085,7 @@ static void finish_task_switch(struct rq *rq, struct task_struct *prev)
 
 	/* accumulator tracker */
 	if (prev && prev->reservation_data && prev->reservation_data->has_reservation) {
-        printk(KERN_INFO "Enter finish task switch for PID %d", prev->pid);
+        // printk(KERN_INFO "Enter finish task switch for PID %d", prev->pid);
         getrawmonotonic(&now);
         delta = timespec_sub(now, prev->reservation_data->exec_start_time);
         prev->reservation_data->exec_accumulated_time = timespec_add(prev->reservation_data->exec_accumulated_time, delta);
