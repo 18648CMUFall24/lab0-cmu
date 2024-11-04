@@ -76,9 +76,11 @@ void set_cpu(int cpuid)
     unsigned long cpu_mask = 1UL << cpuid;
     if (syscall(__NR_sched_setaffinity, 0, sizeof(cpu_mask), &cpu_mask) < 0)
     {
-        perror("sched_setaffinity");
-        // Print errno
-        printf("errno: %d\n", errno);
+        // Print error
+        printf("CPU %d is offline, turn it on by:\n", cpuid);
+        printf("   CPU_PATH=/sys/devices/system/cpu\n");
+        printf("   for cpu in 0 1 2 3; do echo 1 > $CPU_PATH/cpu$cpu/online; sleep 1; done\n");
+        printf("   for cpu in 0 1 2 3; do echo performance > $CPU_PATH/cpu$cpu/cpufreq/scaling_governor; done\n");
         exit(1); // Return error
     }
 }
@@ -94,7 +96,7 @@ int main(int argc, char *argv[])
     // Parse the arguments to integers
     int32_t C, T, cpuid;
     if (parse_cmd_args(argc, argv, &C, &T, &cpuid) < 0)
-        perror("parse_cmd_args\n");
+        exit(1);
 
     // Set the CPU affinity, so the process runs on the specified CPU
     set_cpu(cpuid);
