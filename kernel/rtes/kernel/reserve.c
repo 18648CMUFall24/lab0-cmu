@@ -86,7 +86,7 @@ enum hrtimer_restart reservation_timer_callback(struct hrtimer *timer) {
         if (send_sig_info(SIGEXCESS, &info, task) < 0) {
             printk(KERN_ERR "Failed to send SIGEXCESS to PID %d\n", task->pid);
         } else {
-            // remove_tid_file(task);
+            remove_tid_file(task);
             cleanup_utilization_data(task);
             printk(KERN_INFO "SIGEXCESS sent to PID %d\n", task->pid);
         }
