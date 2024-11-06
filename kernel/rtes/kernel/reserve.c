@@ -73,8 +73,8 @@ enum hrtimer_restart reservation_timer_callback(struct hrtimer *timer) {
     exec_ns = timespec_to_ns(&res_data->exec_accumulated_time);
     period_ns = timespec_to_ns(&res_data->reserve_T);
 
-    printk(KERN_INFO "reservation_timer_callback: PID %d accumulated execution time: %llu ns\n",
-           task->pid, exec_ns);
+    // printk(KERN_INFO "reservation_timer_callback: PID %d accumulated execution time: %llu ns\n",
+    //        task->pid, exec_ns);
 
     if (timespec_compare(&exec_time, &budget) > 0) {
         // Send SIGEXCESS signal to process
@@ -86,29 +86,13 @@ enum hrtimer_restart reservation_timer_callback(struct hrtimer *timer) {
         if (send_sig_info(SIGEXCESS, &info, task) < 0) {
             printk(KERN_ERR "Failed to send SIGEXCESS to PID %d\n", task->pid);
         } else {
+            // remove_tid_file(task);
+            cleanup_utilization_data(task);
             printk(KERN_INFO "SIGEXCESS sent to PID %d\n", task->pid);
         }
+
     }
 
-    printk("Util budget: %llu\n", budget_ns);
-    printk("Util exec_ns: %llu\n", exec_ns);
-    printk("Util period_ns: %llu\n", period_ns);
-    
-    // // utilization = div64_u64(exec_ns, period_ns); // Utilization as a percentage
-    // char C_str[21];  // 20 digits for max u64 value + 1 for null terminator
-    // char T_str[21];
-    // char util_str[21] = {0};
-    // // Convert u64 to string
-    // snprintf(C_str, sizeof(C_str), "%llu", exec_ns);
-    // snprintf(T_str, sizeof(T_str), "%llu", period_ns);
-    // printk("Util C_str: %s\n", C_str);
-    // printk("Util T_str: %s\n", T_str);
-    // ret = do_calc(C_str, T_str, '/', util_str);
-    // if (ret != 0) {
-    //     printk(KERN_ERR "do_calc failed with error %ld\n", ret);
-    //     return ret;  // or handle error appropriately
-    // }
-    // printk("Utilization: %s\n", util_str);
     res_data->period_count++;  // Increment the period count
     utilization_integer = div_u64_rem(exec_ns * 100, (u32)period_ns, &remainder);
     utilization_fraction = div_u64_rem((u64)remainder * 100, (u32)period_ns, &remainder);
@@ -117,7 +101,7 @@ enum hrtimer_restart reservation_timer_callback(struct hrtimer *timer) {
     snprintf(utilization_str, sizeof(utilization_str), "0.%02llu", utilization_integer);
 
     // Print the utilization for debugging purposes
-    printk(KERN_INFO "Utilization: %s\n", utilization_str);
+    // printk(KERN_INFO "Utilization: %s\n", utilization_str);
     
     // Collect utilization data if monitoring is enabled
     if (res_data->monitoring_enabled) {
@@ -198,10 +182,19 @@ SYSCALL_DEFINE4(set_reserve, pid_t, pid, struct timespec __user *, C, struct tim
     res_data->reserve_T = t;
     res_data->has_reservation = true;
     res_data->task = task;
+    res_data->monitoring_enabled = taskmon_enabled;
 
-    // Create per-thread sysfs file if monitoring is enabled
-    if (res_data->monitoring_enabled) {
-        create_tid_file(task);
+    // Create sysfs file regardless of taskmon_enabled
+    if (!res_data->taskmon_tid_attr) {
+        ret = create_tid_file(task);
+        if (ret) {
+            printk(KERN_ERR "set_reserve: Failed to create tid file for PID %d with error %d\n", task->pid, ret);
+            res_data->has_reservation = false;
+            if (pid != 0) {
+                put_task_struct(task);
+            }
+            return ret;
+        }
     }
 
     res_data->exec_accumulated_time = (struct timespec){0, 0};
@@ -225,7 +218,7 @@ SYSCALL_DEFINE4(set_reserve, pid_t, pid, struct timespec __user *, C, struct tim
     res_data->reservation_timer.function = reservation_timer_callback;
     res_data->task = task;  // Link task to reservation data for callback
     hrtimer_start(&res_data->reservation_timer, timespec_to_ktime(t), HRTIMER_MODE_PINNED);
-    create_tid_file(task);
+    
 
     if (pid != 0) 
         put_task_struct(task);
@@ -270,11 +263,10 @@ SYSCALL_DEFINE1(cancel_reserve, pid_t, pid) {
     // clear up reservation parameters
     res_data->reserve_C = (struct timespec){0, 0};
     res_data->reserve_T = (struct timespec){0, 0};
-    res_data->has_reservation = false;
+    
     set_cpus_allowed_ptr(task, cpu_all_mask);
-
+    res_data->has_reservation = false;
     remove_tid_file(task);
-
     cleanup_utilization_data(task);
     
     if (pid != 0) 
