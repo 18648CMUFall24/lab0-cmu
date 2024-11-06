@@ -101,7 +101,7 @@ enum hrtimer_restart reservation_timer_callback(struct hrtimer *timer) {
     snprintf(utilization_str, sizeof(utilization_str), "0.%02llu", utilization_integer);
 
     // Print the utilization for debugging purposes
-    // printk(KERN_INFO "Utilization: %s\n", utilization_str);
+    printk(KERN_INFO "Utilization: %s\n", utilization_str);
     
     // Collect utilization data if monitoring is enabled
     if (res_data->monitoring_enabled) {
@@ -113,8 +113,8 @@ enum hrtimer_restart reservation_timer_callback(struct hrtimer *timer) {
             point->utilization[sizeof(point->utilization) - 1] = '\0';  //  null-terminator
             spin_lock_irqsave(&res_data->data_lock, flags);
             list_add_tail(&point->list, &res_data->data_points);
-            printk(KERN_INFO "Added data point for PID: %d, timestamp=%llu, utilization=%s\n",
-                   res_data->task->pid, point->timestamp, point->utilization);
+            // printk(KERN_INFO "Added data point for PID: %d, timestamp=%llu, utilization=%s\n",
+            //        res_data->task->pid, point->timestamp, point->utilization);
             spin_unlock_irqrestore(&res_data->data_lock, flags);
         } else {
             printk(KERN_ERR "Failed to allocate memory for data point\n");
