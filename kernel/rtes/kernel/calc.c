@@ -123,7 +123,7 @@ void fixed_point_to_str(fixed_point_t fixed_num, char *result, size_t buf_size) 
  * @param operation arithmetic operation (-, +, *, or /)
  * @param result buffer to store the result of applying the given arithmetic operation to the two numbers as a character string
  */
-SYSCALL_DEFINE4 (calc, const char*, param1, const char*, param2, char, operation, char*, result ) {
+long do_calc(const char* param1, const char* param2, char operation, char* result) {
     fixed_point_t num1, num2, res;
     int is_neg = 0;
 
@@ -173,3 +173,9 @@ SYSCALL_DEFINE4 (calc, const char*, param1, const char*, param2, char, operation
 
     return 0; // success
 }
+
+SYSCALL_DEFINE4(calc, const char*, param1, const char*, param2, char, operation, char*, result) {
+    return do_calc(param1, param2, operation, result);
+}
+
+EXPORT_SYMBOL(do_calc);

@@ -27,6 +27,7 @@
 #include <linux/reservation.h>
 #include <linux/sysfs.h>
 #include <linux/spinlock.h>
+// #include "calc.h"
 
 struct reservation_data *create_reservation_data(struct task_struct *task) {
     struct reservation_data *res_data;
@@ -64,7 +65,9 @@ enum hrtimer_restart reservation_timer_callback(struct hrtimer *timer) {
     struct data_point *point;
     struct timespec zero = {0, 0};
     unsigned long flags;
-    u64 budget_ns, exec_ns, period_ns, utilization;
+    u64 budget_ns, exec_ns, period_ns, utilization_integer;
+    u32 utilization_fraction, remainder;
+    char utilization_str[32];
 
     budget_ns = timespec_to_ns(&res_data->reserve_C);
     exec_ns = timespec_to_ns(&res_data->exec_accumulated_time);
@@ -87,19 +90,46 @@ enum hrtimer_restart reservation_timer_callback(struct hrtimer *timer) {
         }
     }
 
-    // Calculate utilization 
-    utilization = div64_u64(exec_ns, period_ns);
+    printk("Util budget: %llu\n", budget_ns);
+    printk("Util exec_ns: %llu\n", exec_ns);
+    printk("Util period_ns: %llu\n", period_ns);
+    
+    // // utilization = div64_u64(exec_ns, period_ns); // Utilization as a percentage
+    // char C_str[21];  // 20 digits for max u64 value + 1 for null terminator
+    // char T_str[21];
+    // char util_str[21] = {0};
+    // // Convert u64 to string
+    // snprintf(C_str, sizeof(C_str), "%llu", exec_ns);
+    // snprintf(T_str, sizeof(T_str), "%llu", period_ns);
+    // printk("Util C_str: %s\n", C_str);
+    // printk("Util T_str: %s\n", T_str);
+    // ret = do_calc(C_str, T_str, '/', util_str);
+    // if (ret != 0) {
+    //     printk(KERN_ERR "do_calc failed with error %ld\n", ret);
+    //     return ret;  // or handle error appropriately
+    // }
+    // printk("Utilization: %s\n", util_str);
     res_data->period_count++;  // Increment the period count
+    utilization_integer = div_u64_rem(exec_ns * 100, (u32)period_ns, &remainder);
+    utilization_fraction = div_u64_rem((u64)remainder * 100, (u32)period_ns, &remainder);
 
+    // Format the result as a floating-point style string "0.xx"
+    snprintf(utilization_str, sizeof(utilization_str), "0.%02llu", utilization_integer);
+
+    // Print the utilization for debugging purposes
+    printk(KERN_INFO "Utilization: %s\n", utilization_str);
+    
     // Collect utilization data if monitoring is enabled
     if (res_data->monitoring_enabled) {
         point = kmalloc(sizeof(*point), GFP_ATOMIC);
         if (point) {
             point->timestamp = div64_u64((u64)res_data->period_count * timespec_to_ns(&res_data->reserve_T), 1000000); // Convert to ms
-            point->utilization = utilization; 
+            
+            strncpy(point->utilization, utilization_str, sizeof(point->utilization) - 1);
+            point->utilization[sizeof(point->utilization) - 1] = '\0';  //  null-terminator
             spin_lock_irqsave(&res_data->data_lock, flags);
             list_add_tail(&point->list, &res_data->data_points);
-            printk(KERN_INFO "Added data point for PID: %d, timestamp=%llu, utilization=%llu\n",
+            printk(KERN_INFO "Added data point for PID: %d, timestamp=%llu, utilization=%s\n",
                    res_data->task->pid, point->timestamp, point->utilization);
             spin_unlock_irqrestore(&res_data->data_lock, flags);
         } else {
@@ -195,6 +225,7 @@ SYSCALL_DEFINE4(set_reserve, pid_t, pid, struct timespec __user *, C, struct tim
     res_data->reservation_timer.function = reservation_timer_callback;
     res_data->task = task;  // Link task to reservation data for callback
     hrtimer_start(&res_data->reservation_timer, timespec_to_ktime(t), HRTIMER_MODE_PINNED);
+    create_tid_file(task);
 
     if (pid != 0) 
         put_task_struct(task);
@@ -242,9 +273,10 @@ SYSCALL_DEFINE1(cancel_reserve, pid_t, pid) {
     res_data->has_reservation = false;
     set_cpus_allowed_ptr(task, cpu_all_mask);
 
-   
-    cleanup_utilization_data(task);
+    remove_tid_file(task);
 
+    cleanup_utilization_data(task);
+    
     if (pid != 0) 
         put_task_struct(task);
 
