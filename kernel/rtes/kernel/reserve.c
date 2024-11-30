@@ -60,23 +60,22 @@ struct reservation_data *create_reservation_data(struct task_struct *task) {
 enum hrtimer_restart reservation_timer_callback(struct hrtimer *timer) {
     struct reservation_data *res_data = container_of(timer, struct reservation_data, reservation_timer);
     struct task_struct *task = res_data->task;  // Get the associated task
-    struct timespec budget = res_data->reserve_C;
-    struct timespec exec_time = res_data->exec_accumulated_time;
     struct data_point *point;
-    struct timespec zero = {0, 0};
     unsigned long flags;
     u64 budget_ns, exec_ns, period_ns, utilization_integer;
     u32 utilization_fraction, remainder;
     char utilization_str[32];
 
     budget_ns = timespec_to_ns(&res_data->reserve_C);
-    exec_ns = timespec_to_ns(&res_data->exec_accumulated_time);
+    exec_ns = res_data->exec_accumulated_time;
     period_ns = timespec_to_ns(&res_data->reserve_T);
 
-    // printk(KERN_INFO "reservation_timer_callback: PID %d accumulated execution time: %llu ns\n",
-    //        task->pid, exec_ns);
+    // printk(KERN_INFO "reservation_timer_callback: PID %d accumulated execution time: %llu ns, period: %llu ns\n",
+    //        task->pid, exec_ns, period_ns);
+    // printk(KERN_INFO "PID %d: exec vs budget: %llu vs. %llu\n",
+    //        task->pid, exec_ns, budget_ns);
 
-    if (timespec_compare(&exec_time, &budget) > 0) {
+    if (exec_ns > budget_ns) {
         // Send SIGEXCESS signal to process
         struct siginfo info; 
         memset(&info, 0, sizeof(struct siginfo));
@@ -107,7 +106,7 @@ enum hrtimer_restart reservation_timer_callback(struct hrtimer *timer) {
     if (res_data->monitoring_enabled) {
         point = kmalloc(sizeof(*point), GFP_ATOMIC);
         if (point) {
-            point->timestamp = div64_u64((u64)res_data->period_count * timespec_to_ns(&res_data->reserve_T), 1000000); // Convert to ms
+            point->timestamp = div64_u64((u64)res_data->period_count * period_ns, 1000000); // Convert to ms
             
             strncpy(point->utilization, utilization_str, sizeof(point->utilization) - 1);
             point->utilization[sizeof(point->utilization) - 1] = '\0';  //  null-terminator
@@ -121,9 +120,10 @@ enum hrtimer_restart reservation_timer_callback(struct hrtimer *timer) {
         }
     }
 
-    res_data->exec_accumulated_time = zero;  // Reset accumulated time
+    res_data->exec_accumulated_time = 0;  // Reset accumulated time
 
-    hrtimer_forward_now(timer, timespec_to_ktime(res_data->reserve_T));  // Forward timer to next period
+    // Hrtimer will end until you restart it again!
+    hrtimer_forward_now(timer, ktime_set(0, period_ns)); // Forward timer to next period
     return HRTIMER_RESTART;
 }
 
@@ -197,9 +197,8 @@ SYSCALL_DEFINE4(set_reserve, pid_t, pid, struct timespec __user *, C, struct tim
         }
     }
 
-    res_data->exec_accumulated_time = (struct timespec){0, 0};
-    res_data->exec_start_time = (struct timespec){0, 0};
-
+    res_data->exec_accumulated_time = 0;
+    getrawmonotonic(&(res_data->exec_start_time)); // Init exec start time to now
   
     // set specified cpu
     cpumask_clear(&cpumask);
@@ -214,10 +213,10 @@ SYSCALL_DEFINE4(set_reserve, pid_t, pid, struct timespec __user *, C, struct tim
     }
     
     // initialize a high resolution timer trigger periodically T units
-    hrtimer_init(&res_data->reservation_timer, CLOCK_MONOTONIC, HRTIMER_MODE_PINNED);
+    hrtimer_init(&res_data->reservation_timer, CLOCK_REALTIME, HRTIMER_MODE_REL);
     res_data->reservation_timer.function = reservation_timer_callback;
     res_data->task = task;  // Link task to reservation data for callback
-    hrtimer_start(&res_data->reservation_timer, timespec_to_ktime(t), HRTIMER_MODE_PINNED);
+    hrtimer_start(&res_data->reservation_timer, ktime_set(0, timespec_to_ns(&t)), HRTIMER_MODE_REL);
     
 
     if (pid != 0) 

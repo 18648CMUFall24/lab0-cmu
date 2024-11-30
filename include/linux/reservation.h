@@ -24,7 +24,7 @@ struct reservation_data {
 
 	/* Computation time tracking */
 	struct timespec exec_start_time;			// timestamp of task start
-	struct timespec exec_accumulated_time;		// accumulated execution time
+	u64 exec_accumulated_time;		// accumulated execution time
 
 	/* TaskMon parameters */
 	bool monitoring_enabled;
