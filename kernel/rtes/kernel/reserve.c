@@ -266,9 +266,19 @@ SYSCALL_DEFINE1(cancel_reserve, pid_t, pid) {
  */
 SYSCALL_DEFINE0(end_job) {
     // `current` is a global pointer to the task_struct of the currently running process
+    // Check that task must have reservation or else do nothing
+    if (current->reservation_data && !(current->reservation_data->has_reservation)) {
+        // Does not have reservation, return error
+        printk(KERN_ERR "end_job: No reservation for PID %d, aborting!\n", current->pid);
+        return -2; // Let -2 mean no reservation
+    }
+
+    printk(KERN_INFO "end_job: Suspended PID %d\n", current->pid);
+
     // Set task state to TASK_UNINTERRUPTIBLE
-    current->state = TASK_UNINTERRUPTIBLE;
-    // Force a reschedule
-    set_tsk_need_resched(current);
+    set_current_state(TASK_UNINTERRUPTIBLE);
+    // Force a reschedule to suspend the current task
+    schedule();
+
     return 0; // Return success
 }

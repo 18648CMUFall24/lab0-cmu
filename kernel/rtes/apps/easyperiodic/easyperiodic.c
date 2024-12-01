@@ -97,13 +97,21 @@ void sigexcess_handler(int sig)
     exit(1);
 }
 
-void sigstop_handler(int sig)
+void sigtstp_handler(int sig)
 {
-    printf("SIGSTOP: Stopped\n");
-    if (syscall(_NR_end_job) < 0)
-    {
-        perror("end_job");
-        exit(1);
+    // Ctrl+z signal
+    printf("SIGTSTP: end_job()\n");
+    int ret = syscall(_NR_end_job);
+    if (ret < 0)
+    {   
+        if (ret == -2) {
+            // No reservation, print error and continue
+            printf("end_job() failed, set reservation first!");
+        } else {
+            // Other fatal error, exit program
+            perror("end_job");
+            exit(1);
+        }   
     }
 }
 
@@ -119,7 +127,7 @@ int main(int argc, char *argv[])
 
     // Register signal handlers
     signal(SIGEXCESS, sigexcess_handler);
-    signal(SIGSTOP, sigstop_handler);
+    signal(SIGTSTP, sigtstp_handler);
 
     // Print some extra info
     printf("- Press Ctrl+Z to call end_job()\n");
