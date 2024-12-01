@@ -75,7 +75,16 @@ enum hrtimer_restart reservation_timer_callback(struct hrtimer *timer) {
     // printk(KERN_INFO "PID %d: exec vs budget: %llu vs. %llu\n",
     //        task->pid, exec_ns, budget_ns);
 
-    if (exec_ns > budget_ns) {
+    if (exec_ns >= budget_ns) {
+        printk(KERN_INFO "PID %d exceeded budget, forcing a reschedule!\n", task->pid);
+
+        // Set task state to TASK_UNINTERRUPTIBLE
+        task->state = TASK_UNINTERRUPTIBLE;
+
+        // Force a reschedule
+        set_tsk_need_resched(task);
+
+        /**
         // Send SIGEXCESS signal to process
         struct siginfo info; 
         memset(&info, 0, sizeof(struct siginfo));
@@ -89,6 +98,7 @@ enum hrtimer_restart reservation_timer_callback(struct hrtimer *timer) {
             cleanup_utilization_data(task);
             printk(KERN_INFO "SIGEXCESS sent to PID %d\n", task->pid);
         }
+        **/
 
     }
 
@@ -216,7 +226,7 @@ SYSCALL_DEFINE4(set_reserve, pid_t, pid, struct timespec __user *, C, struct tim
     hrtimer_init(&res_data->reservation_timer, CLOCK_REALTIME, HRTIMER_MODE_REL);
     res_data->reservation_timer.function = reservation_timer_callback;
     res_data->task = task;  // Link task to reservation data for callback
-    hrtimer_start(&res_data->reservation_timer, ktime_set(0, timespec_to_ns(&t)), HRTIMER_MODE_REL);
+    hrtimer_start(&res_data->reservation_timer, ktime_set(0, timespec_to_ns(&c)), HRTIMER_MODE_REL);
     
 
     if (pid != 0) 
