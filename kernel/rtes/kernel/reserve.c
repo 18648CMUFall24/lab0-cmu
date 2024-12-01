@@ -99,7 +99,11 @@ enum hrtimer_restart reservation_timer_callback(struct hrtimer *timer) {
 
     // New period so reset states:
     res_data->exec_accumulated_time = 0;  // Reset accumulated time
-    task->state = TASK_RUNNING; // Reset task state
+    // Wake up task at new period if it has been suspended
+    if (task->state == TASK_UNINTERRUPTIBLE) {
+        wake_up_process(task);
+    }
+
 
     // Hrtimer will end until you restart it again!
     hrtimer_forward_now(timer, ktime_set(0, period_ns)); // Forward timer to next period
