@@ -296,13 +296,11 @@ int create_tid_file(struct task_struct *task)
         kfree(tid_attr);
         return -ENOMEM;
     }
-    printk(KERN_INFO "DEBUG: 6\n");
     new_node->attr = tid_attr;
     mutex_lock(&tid_attr_list_mutex);
     new_node->next = tid_attr_list;
     tid_attr_list = new_node;
     mutex_unlock(&tid_attr_list_mutex);
-    printk(KERN_INFO "DEBUG: 7\n");
     printk(KERN_INFO "create_tid_file: Successfully created sysfs file /sys/rtes/taskmon/util/%d\n", task->pid);
     return 0; // Success
 }
