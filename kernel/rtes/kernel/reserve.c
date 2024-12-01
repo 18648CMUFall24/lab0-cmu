@@ -27,7 +27,8 @@
 #include <linux/reservation.h>
 #include <linux/sysfs.h>
 #include <linux/spinlock.h>
-// #include "calc.h"
+
+static struct kobject *rtes_kobj;    // kobject for /rtes
 
 struct reservation_data *create_reservation_data(struct task_struct *task) {
     struct reservation_data *res_data;
@@ -282,3 +283,69 @@ SYSCALL_DEFINE0(end_job) {
 
     return 0; // Return success
 }
+
+// When the user reads the /sys/rtes/reserves file
+static ssize_t reserves_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
+{    return sprintf(buf, "TEST reserves_show\n");
+}
+
+/** Initializes the kobj_attribute struct with the reserves_show function
+ *   - reserves is the name of the sysfs file
+ *   - 0444 is the permissions of the sysfs file, read only for all users
+ *   - reserves_show is the function to call when the user reads the sysfs file
+ */
+static struct kobj_attribute reserves_attr = __ATTR(reserves, 0444, reserves_show, NULL);
+
+int init_kobjects(void)
+{
+    // Create a kobject named "rtes" under the kernel kobject /sys
+    rtes_kobj = kobject_create_and_add("rtes", NULL); // use NULL for /sys/ instead of kernel_kobj); which is /sys/kernel
+    if (!rtes_kobj)
+    {
+        printk(KERN_ERR "Failed to create kobject: rtes\n");
+        return -ENOMEM; // Error NO MEMory
+    }
+}
+
+
+// Create the sysfs file /sys/rtes/reserves
+int create_reserves_file(void)
+{
+    int ret;
+    // Create a sysfs file named "reserves" under the "rtes" kobject
+    ret = sysfs_create_file(rtes_kobj, &reserves_attr.attr);
+    if (ret)
+    {
+        printk(KERN_ERR "Failed to create file: /sys/rtes/reserves\n");
+        kobject_put(rtes_kobj);
+        return -1;
+    }
+    printk(KERN_INFO "Created file: /sys/rtes/reserves\n");
+    return 0; // Success
+}
+
+/**
+ * Reservation status
+ *   > Create a virtual sysfs file at /sys/rtes/reserves whose dynamic contents is a list of threads with active
+ *   > reserves. For each thread display its thread ID, the process ID, real-time priority, command name, and the
+ *   > CPU ID to which the thread is pinned in the following format:
+ *   > TID PID PRIO CPU NAME
+ *   > 101 101 99   2   adb
+ */
+static int __init init_reserve(void)
+{
+    int ret;
+
+    if ((ret = init_kobjects()) != 0) {
+        printk(KERN_ERR "Failed to initialize reserve kobjects\n");
+        return ret;
+    }
+
+    ret = create_reserves_file();
+    if (ret != 0) {
+        printk(KERN_ERR "Failed to create reserves file\n");
+        return ret;
+    }
+}
+
+core_initcall(init_reserve);
