@@ -257,3 +257,18 @@ SYSCALL_DEFINE1(cancel_reserve, pid_t, pid) {
     printk(KERN_INFO "cancel_reserve: Reservation cancelled for PID %d\n", task->pid);
     return 0;
 }
+
+/**
+ * Provide a system call end_job(), which suspends the calling thread until the beginning 
+ * of its next period, at which point it should be scheduled normally according to its 
+ * reservation. Any unused budget does not get carried over into the next period. 
+ * While the thread is suspended, signals should not wake it up.
+ */
+SYSCALL_DEFINE0(end_job) {
+    // `current` is a global pointer to the task_struct of the currently running process
+    // Set task state to TASK_UNINTERRUPTIBLE
+    current->state = TASK_UNINTERRUPTIBLE;
+    // Force a reschedule
+    set_tsk_need_resched(current);
+    return 0; // Return success
+}
