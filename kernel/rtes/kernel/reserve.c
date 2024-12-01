@@ -62,45 +62,12 @@ enum hrtimer_restart reservation_timer_callback(struct hrtimer *timer) {
     struct task_struct *task = res_data->task;  // Get the associated task
     struct data_point *point;
     unsigned long flags;
-    u64 budget_ns, exec_ns, period_ns, utilization_integer;
+    u64 exec_ns, period_ns, utilization_integer;
     u32 utilization_fraction, remainder;
     char utilization_str[32];
 
-    budget_ns = timespec_to_ns(&res_data->reserve_C);
     exec_ns = res_data->exec_accumulated_time;
     period_ns = timespec_to_ns(&res_data->reserve_T);
-
-    // printk(KERN_INFO "reservation_timer_callback: PID %d accumulated execution time: %llu ns, period: %llu ns\n",
-    //        task->pid, exec_ns, period_ns);
-    // printk(KERN_INFO "PID %d: exec vs budget: %llu vs. %llu\n",
-    //        task->pid, exec_ns, budget_ns);
-
-    if (exec_ns >= budget_ns) {
-        printk(KERN_INFO "PID %d exceeded budget, forcing a reschedule!\n", task->pid);
-
-        // Set task state to TASK_UNINTERRUPTIBLE
-        task->state = TASK_UNINTERRUPTIBLE;
-
-        // Force a reschedule
-        set_tsk_need_resched(task);
-
-        /**
-        // Send SIGEXCESS signal to process
-        struct siginfo info; 
-        memset(&info, 0, sizeof(struct siginfo));
-        info.si_signo = SIGEXCESS;
-        info.si_code = SI_KERNEL;
-
-        if (send_sig_info(SIGEXCESS, &info, task) < 0) {
-            printk(KERN_ERR "Failed to send SIGEXCESS to PID %d\n", task->pid);
-        } else {
-            remove_tid_file(task);
-            cleanup_utilization_data(task);
-            printk(KERN_INFO "SIGEXCESS sent to PID %d\n", task->pid);
-        }
-        **/
-
-    }
 
     res_data->period_count++;  // Increment the period count
     utilization_integer = div_u64_rem(exec_ns * 100, (u32)period_ns, &remainder);
@@ -130,7 +97,9 @@ enum hrtimer_restart reservation_timer_callback(struct hrtimer *timer) {
         }
     }
 
+    // New period so reset states:
     res_data->exec_accumulated_time = 0;  // Reset accumulated time
+    task->state = TASK_RUNNING; // Reset task state
 
     // Hrtimer will end until you restart it again!
     hrtimer_forward_now(timer, ktime_set(0, period_ns)); // Forward timer to next period
@@ -226,7 +195,7 @@ SYSCALL_DEFINE4(set_reserve, pid_t, pid, struct timespec __user *, C, struct tim
     hrtimer_init(&res_data->reservation_timer, CLOCK_REALTIME, HRTIMER_MODE_REL);
     res_data->reservation_timer.function = reservation_timer_callback;
     res_data->task = task;  // Link task to reservation data for callback
-    hrtimer_start(&res_data->reservation_timer, ktime_set(0, timespec_to_ns(&c)), HRTIMER_MODE_REL);
+    hrtimer_start(&res_data->reservation_timer, ktime_set(0, timespec_to_ns(&t)), HRTIMER_MODE_REL);
     
 
     if (pid != 0) 

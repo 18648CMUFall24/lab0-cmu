@@ -3159,7 +3159,7 @@ context_switch(struct rq *rq, struct task_struct *prev,
 {
 	struct mm_struct *mm, *oldmm;
 	struct timespec now;
-	u64 delta;		
+	u64 delta, budget_ns;		
 
 	/* accumulator tracker: stop time for previous timer */
 	if (prev && prev->reservation_data && prev->reservation_data->has_reservation) {
@@ -3168,6 +3168,33 @@ context_switch(struct rq *rq, struct task_struct *prev,
         delta = timespec_to_ns(&now) - timespec_to_ns(&(prev->reservation_data->exec_start_time));
         // printk(KERN_DEBUG "END timer: PID %d: Add to exec time: %llu + %llu\n", prev->pid, prev->reservation_data->exec_accumulated_time, delta);
         prev->reservation_data->exec_accumulated_time += delta;
+
+		// After calculating the new accumulated time, check that the task has not exceeded its budget
+		budget_ns = timespec_to_ns(&prev->reservation_data->reserve_C);
+		if (prev->reservation_data->exec_accumulated_time >= budget_ns) {
+			printk(KERN_INFO "PID %d exceeded budget, forcing a reschedule!\n", prev->pid);
+
+			// Set task state to TASK_UNINTERRUPTIBLE
+			prev->state = TASK_UNINTERRUPTIBLE;
+			// Force a reschedule
+			set_tsk_need_resched(prev);
+
+			/**
+			// Send SIGEXCESS signal to process
+			struct siginfo info; 
+			memset(&info, 0, sizeof(struct siginfo));
+			info.si_signo = SIGEXCESS;
+			info.si_code = SI_KERNEL;
+
+			if (send_sig_info(SIGEXCESS, &info, task) < 0) {
+				printk(KERN_ERR "Failed to send SIGEXCESS to PID %d\n", task->pid);
+			} else {
+				remove_tid_file(task);
+				cleanup_utilization_data(task);
+				printk(KERN_INFO "SIGEXCESS sent to PID %d\n", task->pid);
+			}
+			**/
+		}
     }
     /* accumulator tracker: start timer for the next task after finishing task switch */
 	if (next && next->reservation_data && next->reservation_data->has_reservation) {
