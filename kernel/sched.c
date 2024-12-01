@@ -3163,17 +3163,17 @@ context_switch(struct rq *rq, struct task_struct *prev,
 
 	/* accumulator tracker: stop time for previous timer */
 	if (prev && prev->reservation_data && prev->reservation_data->has_reservation) {
-        printk(KERN_INFO "Enter finish task switch for PID %d", prev->pid);
+        // printk(KERN_INFO "Enter finish task switch for PID %d", prev->pid);
         getrawmonotonic(&now);
         delta = timespec_to_ns(&now) - timespec_to_ns(&(prev->reservation_data->exec_start_time));
-        printk(KERN_DEBUG "END timer: PID %d: Add to exec time: %llu + %llu\n", prev->pid, prev->reservation_data->exec_accumulated_time, delta);
+        // printk(KERN_DEBUG "END timer: PID %d: Add to exec time: %llu + %llu\n", prev->pid, prev->reservation_data->exec_accumulated_time, delta);
         prev->reservation_data->exec_accumulated_time += delta;
     }
     /* accumulator tracker: start timer for the next task after finishing task switch */
 	if (next && next->reservation_data && next->reservation_data->has_reservation) {
         getrawmonotonic(&next->reservation_data->exec_start_time);
-        printk(KERN_DEBUG "START timer: prepare_task_switch: PID %d exec_start_time set to %llu\n",
-               next->pid, timespec_to_ns(&(next->reservation_data->exec_start_time)));
+        // printk(KERN_DEBUG "START timer: prepare_task_switch: PID %d exec_start_time set to %llu\n",
+        //        next->pid, timespec_to_ns(&(next->reservation_data->exec_start_time)));
     }
 
 	prepare_task_switch(rq, prev, next);

@@ -100,7 +100,7 @@ enum hrtimer_restart reservation_timer_callback(struct hrtimer *timer) {
     snprintf(utilization_str, sizeof(utilization_str), "0.%02llu", utilization_integer);
 
     // Print the utilization for debugging purposes
-    printk(KERN_INFO "Utilization: %s\n", utilization_str);
+    // printk(KERN_INFO "Utilization: %s\n", utilization_str);
     
     // Collect utilization data if monitoring is enabled
     if (res_data->monitoring_enabled) {
