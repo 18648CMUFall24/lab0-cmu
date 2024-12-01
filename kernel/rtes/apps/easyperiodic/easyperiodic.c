@@ -103,7 +103,7 @@ void sigstop_handler(int sig)
     if (syscall(_NR_end_job) < 0)
     {
         perror("end_job");
-        return -1; // Return error
+        exit(1);
     }
 }
 
