@@ -29,6 +29,41 @@
 #include <linux/spinlock.h>
 #include "taskmon.h"
 
+// List to store reserved tasks
+static LIST_HEAD(reserved_tasks_list);
+static spinlock_t reserved_tasks_list_lock;
+
+void add_task_to_list(struct task_struct *task) {
+    struct task_node *new_node;
+
+    new_node = kmalloc(sizeof(*new_node), GFP_KERNEL);
+    if (!new_node) {
+        printk(KERN_ERR "add_task_to_list: Failed to allocate memory for task_node\n");
+        return;
+    }
+
+    new_node->task = task;
+    INIT_LIST_HEAD(&new_node->list);
+
+    spin_lock(&reserved_tasks_list_lock); // Acquire the lock
+    list_add_tail(&new_node->list, &reserved_tasks_list);
+    spin_unlock(&reserved_tasks_list_lock); // Release the lock
+}
+void remove_task_from_list(struct task_struct *task) {
+    struct task_node *node, *tmp;
+
+    spin_lock(&reserved_tasks_list_lock); // Acquire the lock
+    list_for_each_entry_safe(node, tmp, &reserved_tasks_list, list) {
+        if (node->task == task) {
+            list_del(&node->list);
+            spin_unlock(&reserved_tasks_list_lock); // Release before freeing
+            kfree(node);
+            return;
+        }
+    }
+    spin_unlock(&reserved_tasks_list_lock); // Release the lock
+    printk(KERN_ERR "remove_task_from_list: Task not found in the list\n");
+}
 
 struct reservation_data *create_reservation_data(struct task_struct *task) {
     struct reservation_data *res_data;
@@ -206,6 +241,9 @@ SYSCALL_DEFINE4(set_reserve, pid_t, pid, struct timespec __user *, C, struct tim
     if (pid != 0) 
         put_task_struct(task);
 
+    // Add to the reserved tasks list
+    add_task_to_list(task);
+
     printk(KERN_INFO "set_reserve called: pid=%d, C=%ld.%09ld, T=%ld.%09ld, cpuid=%d\n",
            pid, c.tv_sec, c.tv_nsec, t.tv_sec, t.tv_nsec, cpuid);
 
@@ -255,6 +293,9 @@ SYSCALL_DEFINE1(cancel_reserve, pid_t, pid) {
     if (pid != 0) 
         put_task_struct(task);
 
+    // Remove task from the reserved tasks list
+    remove_task_from_list(task);
+
     printk(KERN_INFO "cancel_reserve: Reservation cancelled for PID %d\n", task->pid);
     return 0;
 }
@@ -286,7 +327,29 @@ SYSCALL_DEFINE0(end_job) {
 
 // When the user reads the /sys/rtes/reserves file
 static ssize_t reserves_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
-{    return sprintf(buf, "TEST reserves_show\n");
+{    
+    /**
+     * Reservation status 
+     *   Create a virtual sysfs file at /sys/rtes/reserves whose dynamic contents is a list of threads with active
+     *   reserves. For each thread display its thread ID, the process ID, real-time priority, command name, and the
+     *   CPU ID to which the thread is pinned in the following format:
+     *   TID PID PRIO CPU NAME
+     *   101 101 99 2 adb
+     */
+    // Print values from the reserved_tasks_list in the required format
+    struct task_node *node;
+    struct task_struct *task;
+    int len = 0;
+
+    spin_lock(&reserved_tasks_list_lock); // Acquire the lock
+    list_for_each_entry(node, &reserved_tasks_list, list) {
+        task = node->task;
+        // TID PID PRIO CPU NAME
+        len += sprintf(buf + len, "%d %d %d %d %s\n", task->pid, task->tgid, task->rt_priority, task_cpu(task), task->comm);
+    }
+    spin_unlock(&reserved_tasks_list_lock); // Release the lock
+
+    return len;
 }
 
 /** Initializes the kobj_attribute struct with the reserves_show function
@@ -335,6 +398,10 @@ static int __init init_reserve(void)
         printk(KERN_ERR "Failed to create reserves file\n");
         return ret;
     }
+
+    // Initialize the spinlock for the reserved tasks list
+    spin_lock_init(&reserved_tasks_list_lock);
+
     return 0; // Success
 }
 
