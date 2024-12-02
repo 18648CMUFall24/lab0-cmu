@@ -31,7 +31,13 @@
 
 // List to store reserved tasks
 static LIST_HEAD(reserved_tasks_list);
+// Mutex for tasks list
 static spinlock_t reserved_tasks_list_lock;
+// Node in the list
+struct task_node {
+    struct task_struct *task; // Pointer to task_struct
+    struct list_head list;    // List head for linking
+};
 
 void add_task_to_list(struct task_struct *task) {
     struct task_node *new_node;
@@ -335,17 +341,21 @@ static ssize_t reserves_show(struct kobject *kobj, struct kobj_attribute *attr, 
      *   CPU ID to which the thread is pinned in the following format:
      *   TID PID PRIO CPU NAME
      *   101 101 99 2 adb
+     *   1568 1568 0 0 periodic
      */
     // Print values from the reserved_tasks_list in the required format
     struct task_node *node;
     struct task_struct *task;
     int len = 0;
 
+    // Table header
+    len += sprintf(buf + len, " TID  PID PRIO CPU NAME\n");
+
     spin_lock(&reserved_tasks_list_lock); // Acquire the lock
     list_for_each_entry(node, &reserved_tasks_list, list) {
         task = node->task;
         // TID PID PRIO CPU NAME
-        len += sprintf(buf + len, "%d %d %d %d %s\n", task->pid, task->tgid, task->rt_priority, task_cpu(task), task->comm);
+        len += sprintf(buf + len, "%4d %4d %4d %3d %s\n", task->pid, task->tgid, task->rt_priority, task_cpu(task), task->comm);
     }
     spin_unlock(&reserved_tasks_list_lock); // Release the lock
 
