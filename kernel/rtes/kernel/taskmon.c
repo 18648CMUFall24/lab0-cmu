@@ -31,12 +31,13 @@
 #include <linux/spinlock.h>
 #include <linux/math64.h>
 #include <linux/reservation.h> // For struct data_point
+#include "taskmon.h"
 
 
 bool taskmon_enabled = false;
-static struct kobject *rtes_kobj;    // kobject for /rtes
-static struct kobject *taskmon_kobj; // kobject for /rtes/taskmon
-static struct kobject *util_kobj;    // kobject for /rtes/taskmon/util
+struct kobject *rtes_kobj;    // kobject for /rtes
+struct kobject *taskmon_kobj; // kobject for /rtes/taskmon
+struct kobject *util_kobj;    // kobject for /rtes/taskmon/util
 
 struct tid_attr_node
 {
@@ -162,7 +163,7 @@ static ssize_t tid_show(struct kobject *kobj, struct kobj_attribute *attr, char 
  */
 static struct kobj_attribute enabled_attr = __ATTR(enabled, 0660, enabled_show, enabled_store);
 
-int init_kobjects(void)
+int __init init_kobjects(void)
 {
     // Create a kobject named "rtes" under the kernel kobject /sys
     rtes_kobj = kobject_create_and_add("rtes", NULL); // use NULL for /sys/ instead of kernel_kobj); which is /sys/kernel

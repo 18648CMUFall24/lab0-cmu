@@ -27,8 +27,8 @@
 #include <linux/reservation.h>
 #include <linux/sysfs.h>
 #include <linux/spinlock.h>
+#include "taskmon.h"
 
-static struct kobject *rtes_kobj;    // kobject for /rtes
 
 struct reservation_data *create_reservation_data(struct task_struct *task) {
     struct reservation_data *res_data;
@@ -296,22 +296,16 @@ static ssize_t reserves_show(struct kobject *kobj, struct kobj_attribute *attr, 
  */
 static struct kobj_attribute reserves_attr = __ATTR(reserves, 0444, reserves_show, NULL);
 
-int init_kobjects(void)
-{
-    // Create a kobject named "rtes" under the kernel kobject /sys
-    rtes_kobj = kobject_create_and_add("rtes", NULL); // use NULL for /sys/ instead of kernel_kobj); which is /sys/kernel
-    if (!rtes_kobj)
-    {
-        printk(KERN_ERR "Failed to create kobject: rtes\n");
-        return -ENOMEM; // Error NO MEMory
-    }
-}
-
-
 // Create the sysfs file /sys/rtes/reserves
 int create_reserves_file(void)
 {
     int ret;
+
+    if (rtes_kobj == NULL){
+        printk(KERN_ERR "reserve: critical error - rtes_obj is not initialized yet!\n");
+        return -1;
+    }
+
     // Create a sysfs file named "reserves" under the "rtes" kobject
     ret = sysfs_create_file(rtes_kobj, &reserves_attr.attr);
     if (ret)
@@ -336,16 +330,13 @@ static int __init init_reserve(void)
 {
     int ret;
 
-    if ((ret = init_kobjects()) != 0) {
-        printk(KERN_ERR "Failed to initialize reserve kobjects\n");
-        return ret;
-    }
-
     ret = create_reserves_file();
     if (ret != 0) {
         printk(KERN_ERR "Failed to create reserves file\n");
         return ret;
     }
+    return 0; // Success
 }
 
-core_initcall(init_reserve);
+// Use postcore so that it runs after rtes_kobj is initialized by taskmon
+postcore_initcall(init_reserve);
