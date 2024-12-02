@@ -103,7 +103,7 @@ enum hrtimer_restart reservation_timer_callback(struct hrtimer *timer) {
     // printk(KERN_INFO "Utilization: %s\n", utilization_str);
     
     // Collect utilization data if monitoring is enabled
-    if (res_data->monitoring_enabled) {
+    if (taskmon_enabled && res_data->monitoring_enabled) {
         point = kmalloc(sizeof(*point), GFP_ATOMIC);
         if (point) {
             point->timestamp = div64_u64((u64)res_data->period_count * period_ns, 1000000); // Convert to ms
