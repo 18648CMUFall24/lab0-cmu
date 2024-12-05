@@ -3168,12 +3168,12 @@ context_switch(struct rq *rq, struct task_struct *prev,
         delta = timespec_to_ns(&now) - timespec_to_ns(&(prev->reservation_data->exec_start_time));
         // printk(KERN_DEBUG "END timer: PID %d: Add to exec time: %llu + %llu\n", prev->pid, prev->reservation_data->exec_accumulated_time, delta);
         prev->reservation_data->exec_accumulated_time += delta;
-		// printk(KERN_DEBUG "END timer: PID %d exec_accumulated_time: %llu\n", prev->pid, prev->reservation_data->exec_accumulated_time);
-		printk(KERN_INFO "context_switch: PID %d -> PID %d\n", prev ? prev->pid : -1, next ? next->pid : -1);
-		printk(KERN_INFO "context_switch: PID %d exec_accumulated_time=%llu, budget_ns=%llu\n",
-			prev ? prev->pid : -1,
-			prev ? prev->reservation_data->exec_accumulated_time : 0,
-			prev ? timespec_to_ns(&prev->reservation_data->reserve_C) : 0);
+		printk(KERN_DEBUG "END timer: PID %d exec_accumulated_time: %llu\n", prev->pid, prev->reservation_data->exec_accumulated_time);
+		// printk(KERN_INFO "context_switch: PID %d -> PID %d\n", prev ? prev->pid : -1, next ? next->pid : -1);
+		// printk(KERN_INFO "context_switch: PID %d exec_accumulated_time=%llu, budget_ns=%llu\n",
+		// 	prev ? prev->pid : -1,
+		// 	prev ? prev->reservation_data->exec_accumulated_time : 0,
+		// 	prev ? timespec_to_ns(&prev->reservation_data->reserve_C) : 0);
 
 		// After calculating the new accumulated time, check that the task has not exceeded its budget
 		budget_ns = timespec_to_ns(&prev->reservation_data->reserve_C);

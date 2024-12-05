@@ -106,6 +106,24 @@ void remove_task_from_list(struct task_struct *task) {
     printk(KERN_ERR "remove_task_from_list: Task not found in the list\n");
 }
 
+
+bool turn_on_processor(int cpu) {
+    if (cpu_online(cpu)) {
+        printk(KERN_INFO "Processor %d is already online\n", cpu);
+        return true; 
+    }
+
+    printk(KERN_INFO "Turning on processor %d\n", cpu);
+    if (!cpu_up(cpu)) {
+        printk(KERN_INFO "Processor %d successfully turned on\n", cpu);
+        return true; 
+    } else {
+        printk(KERN_ERR "Failed to turn on processor %d\n", cpu);
+        return false; 
+    }
+}
+
+
 struct reservation_data *create_reservation_data(struct task_struct *task) {
     struct reservation_data *res_data;
 
@@ -349,9 +367,10 @@ int find_best_processor(uint32_t util, enum partition_policy policy, struct time
         case FF: // First-Fit
             for (i = 0; i < MAX_PROCESSORS; i++) {
                 if (processors[i].running_util + util <= 1000) {
-                    if (check_schedulability(i, C, T) == 0) {
-                        return i;
-                    }
+                    return i;
+                    // if (check_schedulability(i, C, T) == 0) {
+                    //     return i;
+                    // }
                 }
             }
             break;
@@ -360,10 +379,13 @@ int find_best_processor(uint32_t util, enum partition_policy policy, struct time
             for (i = 0; i < MAX_PROCESSORS; i++) {
                 int idx = (last_processor + i) % MAX_PROCESSORS;    // Start from the last processor
                 if (processors[idx].running_util + util <= 1000) {
-                    if (check_schedulability(idx, C, T) == 0) {
-                        last_processor = idx;
+
+                    last_processor = idx;
                         return idx;
-                    }
+                    // if (check_schedulability(idx, C, T) == 0) {
+                    //     last_processor = idx;
+                    //     return idx;
+                    // }
                 }
             }
             break;
@@ -371,11 +393,14 @@ int find_best_processor(uint32_t util, enum partition_policy policy, struct time
         case BF: // Best-Fit
             for (i = 0; i < MAX_PROCESSORS; i++) {
                 if (processors[i].running_util + util <= 1000) {
-                   if (check_schedulability(i, C, T) == 0) {
-                        if (best_processor == -1 || processors[i].running_util < processors[best_processor].running_util) {
+                    if (best_processor == -1 || processors[i].running_util < processors[best_processor].running_util) {
                             best_processor = i;
                         }
-                    }
+                //    if (check_schedulability(i, C, T) == 0) {
+                //         if (best_processor == -1 || processors[i].running_util < processors[best_processor].running_util) {
+                //             best_processor = i;
+                //         }
+                //     }
                 }
             }
             return best_processor;
@@ -383,11 +408,14 @@ int find_best_processor(uint32_t util, enum partition_policy policy, struct time
         case WF: // Worst-Fit
             for (i = 0; i < MAX_PROCESSORS; i++) {
                 if (processors[i].running_util + util <= 1000) {
-                    if (check_schedulability(i, C, T) == 0) {
-                        if (best_processor == -1 || processors[i].running_util > processors[best_processor].running_util) {
+                     if (best_processor == -1 || processors[i].running_util > processors[best_processor].running_util) {
                             best_processor = i;
                         }
-                    }
+                    // if (check_schedulability(i, C, T) == 0) {
+                    //     if (best_processor == -1 || processors[i].running_util > processors[best_processor].running_util) {
+                    //         best_processor = i;
+                    //     }
+                    // }
                 }
             }
             return best_processor;
@@ -403,11 +431,14 @@ int find_best_processor(uint32_t util, enum partition_policy policy, struct time
 void add_task_to_processor(struct task_struct *task, struct timespec C, struct timespec T, int cpuid) {
     struct bucket_task_ll *new_task;
     uint32_t util = div_C_T(timespec_to_ns(&C), timespec_to_ns(&T));
+    int i;
+
+    turn_on_processor(cpuid); // Ensure the processor is online
 
     new_task = kmalloc(sizeof(*new_task), GFP_KERNEL);
     if (!new_task) {
         printk(KERN_ERR "Failed to allocate memory for task in processor %d\n", cpuid);
-        return;
+        return -ENOMEM;
     }
 
     new_task->task = task;
@@ -419,8 +450,11 @@ void add_task_to_processor(struct task_struct *task, struct timespec C, struct t
 
     processors[cpuid].running_util += util;
     processors[cpuid].num_tasks++;
+
+    printk(KERN_INFO "Task %d added to processor %d. Utilization: %u\n", task->pid, cpuid, util);
 }
 
+// Remove task from processor bucket
 void remove_task_from_processor(struct task_struct *task) {
     int i;
     for (i = 0; i < MAX_PROCESSORS; i++) {
@@ -428,22 +462,36 @@ void remove_task_from_processor(struct task_struct *task) {
 
         while (curr) {
             if (curr->task == task) {
+                // Update the linked list
                 if (prev) {
                     prev->next = curr->next;
                 } else {
                     processors[i].first_task = curr->next;
                 }
 
+                // Update processor utilization and task count
                 processors[i].running_util -= curr->util;
                 processors[i].num_tasks--;
                 kfree(curr);
+                printk(KERN_INFO "Task %d removed from processor %d\n", task->pid, i);
+
+                // Check if processor is now unused and turn it off
+                if (processors[i].num_tasks == 0) {
+                    if (i != 0 && cpu_online(i)) { // Keep processor 0 always online
+                        if (cpu_down(i)) {
+                            printk(KERN_ERR "Failed to bring processor %d offline\n", i);
+                        } else {
+                            printk(KERN_INFO "Processor %d brought offline\n", i);
+                        }
+                    }
+                }
                 return;
             }
             prev = curr;
             curr = curr->next;
         }
     }
-    printk(KERN_ERR "Task not found in any processor.\n");
+    printk(KERN_ERR "Task %d not found in any processor bucket\n", task->pid);
 }
 
 SYSCALL_DEFINE4(set_reserve, pid_t, pid, struct timespec __user *, C, struct timespec __user *, T, int, cpuid) {
@@ -488,6 +536,11 @@ SYSCALL_DEFINE4(set_reserve, pid_t, pid, struct timespec __user *, C, struct tim
         // if (check_schedulability(processor_id, c, t) < 0){
         //     return -EBUSY;
         // }
+    }
+
+    // Check schedulability before adding
+    if (check_schedulability(processor_id, c, t) < 0){
+        return -EBUSY;
     }
 
 
@@ -557,7 +610,7 @@ SYSCALL_DEFINE4(set_reserve, pid_t, pid, struct timespec __user *, C, struct tim
     add_task_to_processor(task, c, t, processor_id);
     
     // initialize a high resolution timer trigger periodically T units
-    hrtimer_init(&res_data->reservation_timer, CLOCK_REALTIME, HRTIMER_MODE_REL);
+    hrtimer_init(&res_data->reservation_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
     res_data->reservation_timer.function = reservation_timer_callback;
     res_data->task = task;  // Link task to reservation data for callback
     hrtimer_start(&res_data->reservation_timer, ktime_set(0, timespec_to_ns(&t)), HRTIMER_MODE_REL);

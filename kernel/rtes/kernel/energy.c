@@ -5,10 +5,51 @@
 #include <linux/slab.h>
 #include <linux/fs.h>
 #include <linux/uaccess.h>
+#include <linux/cpufreq.h>
+#include <linux/cpu.h>
+
 
 bool energy_mon_enabled = false;
 struct kobject *config_kobj; // kobject for /rtes/config
 struct kobject *tasks_kobj;  // kobject for /rtes/tasks
+static unsigned long system_frequency = 0;
+
+// static unsigned long power_table_mw[12] = {
+//     29, 36, 58, 100, 156, 240, 312, 378, 478, 556, 639, 727 // Pre-determined power?
+// };
+
+
+void energy_init(void){
+    current_freq = cpufreq_quick_get(0); // kHz
+    system_freq = current_freq / 1000; //mHz
+    struct cpufreq_frequency_table *freq_table, *entry;
+    struct cpufreq_policy *policy;
+    int index = 0;
+
+    policy =  cpufreq_cpu_get(0);
+    if(!policy){
+        printk(KERN_INFO "Failed to get CPU frequency policy.\n");
+        return;
+    }
+
+    freq_table = cpufreq_frequency_get_table(policy->cpu);
+    if(!freq_table){
+        printk(KERNO_INFO "No CPU frequency table found.\n");
+        cpufreq_cpu_put((policy))
+        return;
+    }
+
+    for(entry = freq_table; entry->frequency != CPUFREQ_TABLE_END; entry++){
+        if(entry->frequency == CPUFREQ_ENTRY_INVALID){
+            continue;
+        }
+
+        if(current_freq == entry->frequency){
+            system_power = power_table[index];
+            break;
+        }
+    }
+}
 
 int __init init_energy_kobjects(void)
 {
@@ -112,7 +153,7 @@ static ssize_t power_show(struct kobject *kobj, struct kobj_attribute *attr, cha
 {
     // /sys/rtes/power mW total power consumption of the system
     // TODO: return the power
-    return sprintf(buf, "%d\n", (int)12345);
+    return sprintf(buf, "%lu\n", system_power_mw);
 }
 
 // File attributes
@@ -121,7 +162,7 @@ static struct kobj_attribute config_attr = __ATTR(energy, 0660, config_energy_sh
 static struct kobj_attribute energy_attr = __ATTR(energy, 0660, energy_show, energy_store);
 // Readonly files
 static struct kobj_attribute freq_attr = __ATTR(freq, 0440, freq_show, NULL);
-static struct kobj_attribute power_attr = __ATTR(power, 0440, NULL, NULL);
+static struct kobj_attribute power_attr = __ATTR(power, 0444, power_show, NULL);
 
 int create_energy_files(void)
 {

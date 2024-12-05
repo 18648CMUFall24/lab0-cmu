@@ -47,6 +47,8 @@ struct reservation_data {
 	struct timespec reserve_C;
 	struct timespec reserve_T;
 	struct hrtimer reservation_timer;
+    struct hrtimer cost_timer;
+    struct hrtimer period_timer;
 	bool has_reservation;
 
 	/* Computation time tracking */
