@@ -167,12 +167,11 @@ uint32_t utilization_bound(uint32_t n) {
 
 uint32_t div_C_T(uint32_t C, uint32_t T)
 {
-    uint32_t result_C_T, dividend;
+    uint64_t result_C_T, dividend;
     // Compute C/T using do_div
     dividend = (uint64_t)C * 1000; // Scale C to fixed-point
     // do_div returns in quotient in dividend and remainder in output
-    do_div(dividend, T);             // Divide by T
-    result_C_T = dividend;                       // Quotient in fixed-point
+    result_C_T = div64_s64(dividend, (uint64_t)T);
     return result_C_T;
 }
 
@@ -193,8 +192,7 @@ int check_schedulability(int cpuid, struct timespec c, struct timespec t) {
     int n = 1;
     C = timespec_to_ns(&c);
     T = timespec_to_ns(&t);
-    U = div_C_T(C, T); // Scaled "double", initialized to 0
-
+    U = div_C_T(C, T);
 
     // Iterate over reserved_tasks_list
     spin_lock(&reserved_tasks_list_lock);
@@ -203,6 +201,7 @@ int check_schedulability(int cpuid, struct timespec c, struct timespec t) {
         if (task_cpu(node->task) == cpuid) {
             res_data = node->task->reservation_data;
             // U = C/T
+            printk(KERN_INFO "ADDING C/T=%d/%d\n", C, T);
             U += div_C_T(timespec_to_ns(&res_data->reserve_C), timespec_to_ns(&res_data->reserve_T));
             n++; // Increment number of tasks
         }
