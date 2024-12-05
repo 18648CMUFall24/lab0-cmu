@@ -985,18 +985,26 @@ NORET_TYPE void do_exit(long code)
 	exit_fs(tsk);
 	// for reservation framework
 	if (tsk->reservation_data && tsk->reservation_data->has_reservation) {
+		printk(KERN_INFO "Task %d exiting with active reservation. Cleaning up...\n", tsk->pid);
+
 		struct reservation_data *res_data = tsk->reservation_data;
 
 		// Cancel the high-resolution timer associated with the reservation
 		hrtimer_cancel(&res_data->reservation_timer);
-		res_data->has_reservation = false;
-		
+
 		// Reset reservation parameters
 		memset(&res_data->reserve_C, 0, sizeof(struct timespec));
 		memset(&res_data->reserve_T, 0, sizeof(struct timespec));
 
-		// Cleanup utilization data and sysfs file for this task
+		// Remove task from processor, reserved task list, and clean sysfs entries
+		remove_task_from_processor(tsk);
+		remove_task_from_list(tsk);
+		remove_tid_file(tsk);
 		cleanup_utilization_data(tsk);
+
+		res_data->has_reservation = false;
+
+		printk(KERN_INFO "Cleanup for task %d completed.\n", tsk->pid);
 	}
 
 	check_stack_usage();
