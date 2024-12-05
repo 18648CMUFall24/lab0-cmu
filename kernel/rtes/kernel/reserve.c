@@ -158,30 +158,36 @@ enum hrtimer_restart reservation_timer_callback(struct hrtimer *timer) {
 // Fixed-point approximation of 2^(1/n)
 uint32_t fixed_point_pow(uint32_t n)
 {
-    uint64_t base = FIXED_POINT_MULT * 2; // 2 in fixed-point
-    uint64_t result = FIXED_POINT_MULT;  // Start with 1.0 in fixed-point
-
-    uint32_t i;
-    for (i = 0; i < FIXED_POINT_SHIFT; i++) {
-        if (n & (1 << i)) {
-            do_div(base, (n >> i) + 1); // Approximate 2^(1/n)
-            result = result * base / FIXED_POINT_MULT;
+    uint64_t low = FIXED_POINT_MULT;          // Start at 1.0 in fixed-point
+    uint64_t high = FIXED_POINT_MULT * 2;     // Start at 2.0 in fixed-point
+    uint64_t mid;
+    while (high - low > 1) {
+        mid = (low + high) / 2;
+        // Compute mid^n in fixed-point
+        uint64_t pow_mid = mid;
+        for (uint32_t i = 1; i < n; i++) {
+            pow_mid = (pow_mid * mid) / FIXED_POINT_MULT; // Scale back
+            if (pow_mid > FIXED_POINT_MULT * 2) break;    // Early exit if overflow
         }
+        if (pow_mid > FIXED_POINT_MULT * 2)
+            high = mid; // Mid is too large
+        else
+            low = mid;  // Mid is too small
     }
-    return result;
+    return low; // Approximation of 2^(1/n) in fixed-point
 }
 uint32_t utilization_bound (uint32_t n)
 {
-    uint32_t fixed_point_result;
+    uint64_t term, fixed_point_result;
 
-    // Calculate the term 2^(1/n) in fixed-point
+    // Calculate 2^(1/n) in fixed-point
     uint32_t pow_2_1_n = fixed_point_pow(n);
 
-    // Calculate the full expression: n * (2^(1/n) - 1)
-    uint32_t term = pow_2_1_n - FIXED_POINT_MULT; // (2^(1/n) - 1) in fixed-point
-    fixed_point_result = (n * term) / FIXED_POINT_MULT;
+    // Calculate n * (2^(1/n) - 1) using 64-bit to avoid overflow
+    term = (uint64_t)(pow_2_1_n - FIXED_POINT_MULT) * n; // Scale (2^(1/n) - 1) by n
+    fixed_point_result = term / FIXED_POINT_MULT;        // Scale back to fixed-point
 
-    return fixed_point_result;
+    return (uint32_t)fixed_point_result;
 }
 
 uint32_t div_C_T(uint32_t C, uint32_t T)
