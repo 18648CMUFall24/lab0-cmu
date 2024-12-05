@@ -29,9 +29,6 @@
 #include <linux/spinlock.h>
 #include "taskmon.h"
 
-#define FIXED_POINT_SHIFT 16  // Lower precision for 32-bit systems
-#define FIXED_POINT_MULT (1 << FIXED_POINT_SHIFT)
-
 // List to store reserved tasks
 static LIST_HEAD(reserved_tasks_list);
 // Mutex for tasks list
@@ -155,55 +152,24 @@ enum hrtimer_restart reservation_timer_callback(struct hrtimer *timer) {
     return HRTIMER_RESTART;
 }
 
-uint32_t fixed_point_pow(uint32_t n) {
-    uint64_t low = FIXED_POINT_MULT;      // Start at 1.0 in fixed-point
-    uint64_t high = FIXED_POINT_MULT * 2; // Start at 2.0 in fixed-point
-    uint64_t mid, pow_mid;
-    uint32_t i;
-    if (n == 1) {
-        return FIXED_POINT_MULT * 2; // 2^1 in fixed-point
-    }
-    while (high - low > 1) {
-        mid = div_u64(low + high, 2); // Compute midpoint
-        // Compute mid^n in fixed-point
-        pow_mid = FIXED_POINT_MULT; // Start with 1.0
-        for (i = 0; i < n; i++) {
-            pow_mid = div_u64(pow_mid * mid, FIXED_POINT_MULT); // Scale back
-            if (pow_mid >= FIXED_POINT_MULT * 2) {             // Overflow check
-                pow_mid = FIXED_POINT_MULT * 2;
-                break;
-            }
-        }
-
-        if (pow_mid > FIXED_POINT_MULT * 2)
-            high = mid; // Mid is too large
-        else
-            low = mid;  // Mid is too small
-    }
-
-    return (uint32_t)low; // Approximation of 2^(1/n) in fixed-point
-}
 uint32_t utilization_bound(uint32_t n) {
-    uint64_t term, fixed_point_result;
-
-    if (n == 1) {
-        return FIXED_POINT_MULT; // Utilization bound for n=1 is exactly 1.0
+    uint32_t precomputed_utilization[10] = {
+        // Utilization values * 1000
+        // n*(2^{1/n} – 1)
+        1000, 828, 780, 757, 743, 735, 729, 724, 721, 718
+    };
+    if (n <= 10) {
+        return precomputed_utilization[n - 1];
+    } else {
+        return 693; // infinity value
     }
-    // Calculate 2^(1/n) in fixed-point
-    uint32_t pow_2_1_n = fixed_point_pow(n);
-
-    // Calculate n * (2^(1/n) - 1) using wide arithmetic to avoid overflow
-    term = (uint64_t)(pow_2_1_n - FIXED_POINT_MULT) * n; // n * (2^(1/n) - 1)
-    fixed_point_result = div_u64(term, FIXED_POINT_MULT); // Scale back
-
-    return (uint32_t)fixed_point_result;
 }
 
 uint32_t div_C_T(uint32_t C, uint32_t T)
 {
     uint32_t result_C_T, dividend;
     // Compute C/T using do_div
-    dividend = (uint64_t)C << FIXED_POINT_SHIFT; // Scale C to fixed-point
+    dividend = (uint64_t)C * 1000; // Scale C to fixed-point
     // do_div returns in quotient in dividend and remainder in output
     do_div(dividend, T);             // Divide by T
     result_C_T = dividend;                       // Quotient in fixed-point
@@ -218,7 +184,7 @@ uint32_t div_C_T(uint32_t C, uint32_t T)
  */
 int check_schedulability(int cpuid, struct timespec c, struct timespec t) {
     // Utilization Bound (UB) Test
-    // n*(2^{1/n} – 1)
+    
     // n = number of tasks
     uint32_t UB, C, T, U;
     struct task_node *node;
@@ -246,22 +212,8 @@ int check_schedulability(int cpuid, struct timespec c, struct timespec t) {
     // Calculate the Utilization Bound (UB) for the new task
     UB = utilization_bound(n);
 
-    // To check utilization bound, print out values for n =1,2,3,4,5,6
-printk(KERN_INFO "Utilization bound n=1: %u.%04u\n", 
-       utilization_bound(1) / FIXED_POINT_MULT, utilization_bound(1) % FIXED_POINT_MULT);
-printk(KERN_INFO "Utilization bound n=2: %u.%04u\n", 
-       utilization_bound(2) / FIXED_POINT_MULT, utilization_bound(2) % FIXED_POINT_MULT);
-printk(KERN_INFO "Utilization bound n=3: %u.%04u\n", 
-       utilization_bound(3) / FIXED_POINT_MULT, utilization_bound(3) % FIXED_POINT_MULT);
-printk(KERN_INFO "Utilization bound n=4: %u.%04u\n",
-         utilization_bound(4) / FIXED_POINT_MULT, utilization_bound(4) % FIXED_POINT_MULT);
-printk(KERN_INFO "Utilization bound n=5: %u.%04u\n",
-            utilization_bound(5) / FIXED_POINT_MULT, utilization_bound(5) % FIXED_POINT_MULT);
-printk(KERN_INFO "Utilization bound n=6: %u.%04u\n",
-            utilization_bound(6) / FIXED_POINT_MULT, utilization_bound(6) % FIXED_POINT_MULT);
-
-
-
+    printf("n=%d\n", n);
+    printf("UB: %d, U: %d\n", UB, U);
     // Compare the Utilization Bound (UB) with the Utilization (U)
     if (U > UB) {
         printk(KERN_ERR "check_schedulability: Utilization Bound (UB) test failed\n");
