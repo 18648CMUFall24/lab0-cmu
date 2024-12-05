@@ -56,6 +56,7 @@
 #include <asm/unistd.h>
 #include <asm/pgtable.h>
 #include <asm/mmu_context.h>
+#include <linux/reservation.h>
 
 static void exit_mm(struct task_struct * tsk);
 
@@ -985,9 +986,8 @@ NORET_TYPE void do_exit(long code)
 	exit_fs(tsk);
 	// for reservation framework
 	if (tsk->reservation_data && tsk->reservation_data->has_reservation) {
-		printk(KERN_INFO "Task %d exiting with active reservation. Cleaning up...\n", tsk->pid);
-
 		struct reservation_data *res_data = tsk->reservation_data;
+		printk(KERN_INFO "Task %d exiting with active reservation. Cleaning up...\n", tsk->pid);
 
 		// Cancel the high-resolution timer associated with the reservation
 		hrtimer_cancel(&res_data->reservation_timer);

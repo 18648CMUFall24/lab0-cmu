@@ -29,9 +29,18 @@
 #include <linux/spinlock.h>
 #include "taskmon.h"
 
-
+enum partition_policy current_policy = FF; // Default policy is First Fit
 struct bucket_info processors[MAX_PROCESSORS];
-enum partition_policy current_policy = FF; // Default policy is First Fit   
+
+static const char *policy_names[] = {
+    [FF] = "FF",
+    [NF] = "NF",
+    [BF] = "BF",
+    [WF] = "WF"
+};
+
+
+static spinlock_t policy_lock;
 
 uint32_t div_C_T(uint32_t C, uint32_t T)
 {
@@ -79,7 +88,7 @@ int find_best_processor(uint32_t util, enum partition_policy policy) {
             break;
 
         case BF: // Best-Fit
-            for (int i = 0; i < MAX_PROCESSORS; i++) {
+            for (i = 0; i < MAX_PROCESSORS; i++) {
                 if (processors[i].running_util + util <= 1000) {
                     if (best_processor == -1 || processors[i].running_util < processors[best_processor].running_util) {
                         best_processor = i;         // Update the best processor to find the minimum utilization
@@ -89,7 +98,7 @@ int find_best_processor(uint32_t util, enum partition_policy policy) {
             return best_processor;
 
         case WF: // Worst-Fit
-            for (int i = 0; i < MAX_PROCESSORS; i++) {
+            for (i = 0; i < MAX_PROCESSORS; i++) {
                 if (processors[i].running_util + util <= 1000) {
                     if (best_processor == -1 || processors[i].running_util > processors[best_processor].running_util) {
                         best_processor = i;         // opposite of best fit
@@ -666,12 +675,75 @@ static ssize_t reserves_show(struct kobject *kobj, struct kobj_attribute *attr, 
     return len;
 }
 
-/** Initializes the kobj_attribute struct with the reserves_show function
- *   - reserves is the name of the sysfs file
- *   - 0444 is the permissions of the sysfs file, read only for all users
+static ssize_t partition_policy_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
+{
+    ssize_t len;
+    spin_lock(&policy_lock);
+    len = sprintf(buf, "%s\n", policy_names[current_policy]);
+    spin_unlock(&policy_lock);
+    return len;
+}
+
+static ssize_t partition_policy_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count)
+{
+    enum partition_policy new_policy;
+    char input[16]; // Enough for policy names (FF, NF, BF, WF)
+    int i;
+
+    // Ensure no active reservations
+    spin_lock(&reserved_tasks_list_lock);
+    if (!list_empty(&reserved_tasks_list)) {
+        spin_unlock(&reserved_tasks_list_lock);
+        printk(KERN_ERR "Cannot change policy: active reservations exist.\n");
+        return -EBUSY; // Fail if there are active reservations
+    }
+    spin_unlock(&reserved_tasks_list_lock);
+
+    // Copy and sanitize input
+    if (count > sizeof(input) - 1) {
+        return -EINVAL; // Input too long
+    }
+    strncpy(input, buf, count);
+    input[count] = '\0'; // Null-terminate the input
+
+    // Match input to policy names (case-insensitive)
+    for (i = 0; i < ARRAY_SIZE(policy_names); i++) {
+        if (strncasecmp(input, policy_names[i], strlen(policy_names[i])) == 0) {
+            new_policy = i;
+            break;
+        }
+    }
+
+    // If no matching policy found, return an error
+    if (i == ARRAY_SIZE(policy_names)) {
+        printk(KERN_ERR "Invalid partitioning policy: %s\n", input);
+        return -EINVAL;
+    }
+
+    // Update the policy
+    spin_lock(&policy_lock);
+    if (current_policy != new_policy) {
+        current_policy = new_policy;
+        printk(KERN_INFO "Partitioning policy changed to: %s\n", policy_names[current_policy]);
+    } else {
+        printk(KERN_INFO "Partitioning policy already set to: %s\n", policy_names[current_policy]);
+    }
+    spin_unlock(&policy_lock);
+
+    return count;
+}
+
+
+/** Initializes the kobj_attribute struct with the reserves_show and partition_show & _store function
+ *   - reserves, partition_policy is the name of the sysfs file
+ *   - 0444 is the permissions of the sysfs file, read only for all users 0664 is read/write for owner and read only for group and others
  *   - reserves_show is the function to call when the user reads the sysfs file
+ *   - partition_policy_show is the function to call when the user reads the sysfs file
+ *   - partition_policy_store is the function to call when the user writes to the sysfs file
  */
 static struct kobj_attribute reserves_attr = __ATTR(reserves, 0444, reserves_show, NULL);
+static struct kobj_attribute partition_policy_attr = __ATTR(partition_policy, 0664, partition_policy_show, partition_policy_store);
+
 
 // Create the sysfs file /sys/rtes/reserves
 int create_reserves_file(void)
@@ -694,6 +766,27 @@ int create_reserves_file(void)
     printk(KERN_INFO "Created file: /sys/rtes/reserves\n");
     return 0; // Success
 }
+
+static int create_partition_policy_file(void)
+{
+    int ret;
+
+    if (!rtes_kobj) {
+        printk(KERN_ERR "partition_policy: rtes_kobj is not initialized yet!\n");
+        return -EINVAL;
+    }
+
+    // Create a sysfs file named "partition_policy" under the "rtes" kobject
+    ret = sysfs_create_file(rtes_kobj, &partition_policy_attr.attr);
+    if (ret) {
+        printk(KERN_ERR "partition_policy: /sys/rtes/partition_policy creation failed\n");
+        return ret;
+    }
+
+    printk(KERN_INFO "partition_policy: Created file /sys/rtes/partition_policy\n");
+    return 0;
+}
+
 
 /**
  * Reservation status
@@ -719,5 +812,23 @@ static int __init init_reserve(void)
     return 0; // Success
 }
 
+static int __init partition_policy_init(void)
+{
+    int ret;
+
+    // Initialize spinlock
+    spin_lock_init(&policy_lock);
+
+    // Create the sysfs file
+    ret = create_partition_policy_file();
+    if (ret) {
+        printk(KERN_ERR "Failed to initialize partition_policy sysfs\n");
+        return ret;
+    }
+
+    return 0;
+}
+
 // Use postcore so that it runs after rtes_kobj is initialized by taskmon
 postcore_initcall(init_reserve);
+postcore_initcall(partition_policy_init);

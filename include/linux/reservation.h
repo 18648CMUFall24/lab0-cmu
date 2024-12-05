@@ -80,6 +80,7 @@ extern struct bucket_info processors[MAX_PROCESSORS];
 int find_best_processor(uint32_t util, enum partition_policy policy);
 void add_task_to_processor(struct task_struct *task, struct timespec C, struct timespec T, int cpuid);
 void remove_task_from_processor(struct task_struct *task);
+void remove_task_from_list(struct task_struct *task);
 void initialize_processors(void);
 
 #endif // _LINUX_RESERVATION_H
