@@ -186,11 +186,12 @@ uint32_t utilization_bound (uint32_t n)
 
 uint32_t div_C_T(uint32_t C, uint32_t T)
 {
+    uint32_t result_C_T, dividend;
     // Compute C/T using do_div
-    uint64_t dividend = (uint64_t)C << FIXED_POINT_SHIFT; // Scale C to fixed-point
+    dividend = (uint64_t)C << FIXED_POINT_SHIFT; // Scale C to fixed-point
     // do_div returns in quotient in dividend and remainder in output
-    uint64_t remainder = do_div(dividend, T);             // Divide by T
-    uint32_t result_C_T = dividend;                       // Quotient in fixed-point
+    do_div(dividend, T);             // Divide by T
+    result_C_T = dividend;                       // Quotient in fixed-point
     return result_C_T;
 }
 
@@ -204,12 +205,13 @@ int check_schedulability(int cpuid, struct timespec c, struct timespec t) {
     // Utilization Bound (UB) Test
     // n*(2^{1/n} – 1)
     // n = number of tasks
+    uint32_t UB, C, T, U;
 
     // Init variables with the newly added task
     int n = 1;
-    uint32_t C = timespec_to_ns(&c);
-    uint32_t T = timespec_to_ns(&t);
-    u64 U = div_C_T(C, T); // Scaled "double", initialized to 0
+    C = timespec_to_ns(&c);
+    T = timespec_to_ns(&t);
+    U = div_C_T(C, T); // Scaled "double", initialized to 0
 
     // Iterate over reserved_tasks_list
     struct task_node *node;
@@ -218,7 +220,7 @@ int check_schedulability(int cpuid, struct timespec c, struct timespec t) {
     spin_lock(&reserved_tasks_list_lock);
     list_for_each_entry(node, &reserved_tasks_list, list) {
         // Only if on the same cpu, take into account
-        if (task_cpu(task) == cpuid) {
+        if (task_cpu(node->task) == cpuid) {
             res_data = node->task->reservation_data;
             // U = C/T
             U += div_C_T(timespec_to_ns(&res_data->reserve_C), timespec_to_ns(&res_data->reserve_T));
@@ -228,7 +230,7 @@ int check_schedulability(int cpuid, struct timespec c, struct timespec t) {
     spin_unlock(&reserved_tasks_list_lock);
 
     // Calculate the Utilization Bound (UB) for the new task
-    uint32_t UB = utilization_bound(n);
+    UB = utilization_bound(n);
 
     // To check utilization bound, print out values for n =1,2,3,4,5,6
     printk(KERN_INFO "utilizationbound n=1: %u\n", utilization_bound(1));
