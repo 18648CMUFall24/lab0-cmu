@@ -157,20 +157,20 @@ enum hrtimer_restart reservation_timer_callback(struct hrtimer *timer) {
 
 // Fixed-point approximation of 2^(1/n)
 uint32_t fixed_point_pow(uint32_t n) {
+    uint64_t low = FIXED_POINT_MULT;      // Start at 1.0 in fixed-point
+    uint64_t high = FIXED_POINT_MULT * 2; // Start at 2.0 in fixed-point
+    uint64_t mid, pow_mid, i;
+
     if (n == 1) {
         return FIXED_POINT_MULT * 2; // 2^1 in fixed-point
     }
-
-    uint64_t low = FIXED_POINT_MULT;      // Start at 1.0 in fixed-point
-    uint64_t high = FIXED_POINT_MULT * 2; // Start at 2.0 in fixed-point
-    uint64_t mid;
 
     while (high - low > 1) {
         mid = (low + high) / 2;
 
         // Compute mid^n in fixed-point
-        uint64_t pow_mid = FIXED_POINT_MULT; // Start with 1.0
-        for (uint32_t i = 0; i < n; i++) {
+        pow_mid = FIXED_POINT_MULT; // Start with 1.0
+        for (i = 0; i < n; i++) {
             pow_mid = (pow_mid * mid) / FIXED_POINT_MULT; // Scale back
             if (pow_mid >= FIXED_POINT_MULT * 2) {        // Overflow check
                 pow_mid = FIXED_POINT_MULT * 2;
@@ -187,16 +187,19 @@ uint32_t fixed_point_pow(uint32_t n) {
     return (uint32_t)low; // Approximation of 2^(1/n) in fixed-point
 }
 uint32_t utilization_bound(uint32_t n) {
+    uint32_t pow_2_1_n, fixed_point_result;
+    uint64_t term;
+
     if (n == 1) {
         return FIXED_POINT_MULT; // Utilization bound for n=1 is exactly 1.0
     }
 
     // Calculate 2^(1/n) in fixed-point
-    uint32_t pow_2_1_n = fixed_point_pow(n);
+    pow_2_1_n = fixed_point_pow(n);
 
     // Calculate n * (2^(1/n) - 1) using wide arithmetic to avoid overflow
-    uint64_t term = (uint64_t)(pow_2_1_n - FIXED_POINT_MULT) * n; // n * (2^(1/n) - 1)
-    uint32_t fixed_point_result = (uint32_t)(term / FIXED_POINT_MULT); // Scale back
+    term = (uint64_t)(pow_2_1_n - FIXED_POINT_MULT) * n; // n * (2^(1/n) - 1)
+    fixed_point_result = (uint32_t)(term / FIXED_POINT_MULT); // Scale back
 
     return fixed_point_result;
 }
@@ -223,17 +226,16 @@ int check_schedulability(int cpuid, struct timespec c, struct timespec t) {
     // n*(2^{1/n} – 1)
     // n = number of tasks
     uint32_t UB, C, T, U;
-
+    struct task_node *node;
+    struct reservation_data *res_data;
     // Init variables with the newly added task
     int n = 1;
     C = timespec_to_ns(&c);
     T = timespec_to_ns(&t);
     U = div_C_T(C, T); // Scaled "double", initialized to 0
 
-    // Iterate over reserved_tasks_list
-    struct task_node *node;
-    struct reservation_data *res_data;
 
+    // Iterate over reserved_tasks_list
     spin_lock(&reserved_tasks_list_lock);
     list_for_each_entry(node, &reserved_tasks_list, list) {
         // Only if on the same cpu, take into account
