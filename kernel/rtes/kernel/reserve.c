@@ -29,6 +29,9 @@
 #include <linux/spinlock.h>
 #include "taskmon.h"
 
+#define FIXED_POINT_SHIFT 16
+#define FIXED_POINT_MULT (1 << FIXED_POINT_SHIFT)
+
 // List to store reserved tasks
 static LIST_HEAD(reserved_tasks_list);
 // Mutex for tasks list
@@ -152,6 +155,100 @@ enum hrtimer_restart reservation_timer_callback(struct hrtimer *timer) {
     return HRTIMER_RESTART;
 }
 
+// Fixed-point approximation of 2^(1/n)
+uint32_t fixed_point_pow(uint32_t n)
+{
+    uint64_t base = FIXED_POINT_MULT * 2; // 2 in fixed-point
+    uint64_t result = FIXED_POINT_MULT;  // Start with 1.0 in fixed-point
+
+    uint32_t i;
+    for (i = 0; i < FIXED_POINT_SHIFT; i++) {
+        if (n & (1 << i)) {
+            do_div(base, (n >> i) + 1); // Approximate 2^(1/n)
+            result = result * base / FIXED_POINT_MULT;
+        }
+    }
+    return result;
+}
+uint32_t utilization_bound (uint32_t n)
+{
+    uint32_t fixed_point_result;
+
+    // Calculate the term 2^(1/n) in fixed-point
+    uint32_t pow_2_1_n = fixed_point_pow(n);
+
+    // Calculate the full expression: n * (2^(1/n) - 1)
+    uint32_t term = pow_2_1_n - FIXED_POINT_MULT; // (2^(1/n) - 1) in fixed-point
+    fixed_point_result = (n * term) / FIXED_POINT_MULT;
+
+    return fixed_point_result;
+}
+
+uint32_t div_C_T(uint32_t C, uint32_t T)
+{
+    // Compute C/T using do_div
+    uint64_t dividend = (uint64_t)C << FIXED_POINT_SHIFT; // Scale C to fixed-point
+    // do_div returns in quotient in dividend and remainder in output
+    uint64_t remainder = do_div(dividend, T);             // Divide by T
+    uint32_t result_C_T = dividend;                       // Quotient in fixed-point
+    return result_C_T;
+}
+
+/**
+ * Check if new task can be schedulable based on UB and then RT tests
+ * @param cpuid cpu id to check schedulability
+ * @param c computation time of new task to be added
+ * @param t period of new task to be added
+ */
+int check_schedulability(int cpuid, struct timespec c, struct timespec t) {
+    // Utilization Bound (UB) Test
+    // n*(2^{1/n} – 1)
+    // n = number of tasks
+
+    // Init variables with the newly added task
+    int n = 1;
+    uint32_t C = timespec_to_ns(&c);
+    uint32_t T = timespec_to_ns(&t);
+    u64 U = div_C_T(C, T); // Scaled "double", initialized to 0
+
+    // Iterate over reserved_tasks_list
+    struct task_node *node;
+    struct reservation_data *res_data;
+
+    spin_lock(&reserved_tasks_list_lock);
+    list_for_each_entry(node, &reserved_tasks_list, list) {
+        // Only if on the same cpu, take into account
+        if (task_cpu(task) == cpuid) {
+            res_data = node->task->reservation_data;
+            // U = C/T
+            U += div_C_T(timespec_to_ns(&res_data->reserve_C), timespec_to_ns(&res_data->reserve_T));
+            n++; // Increment number of tasks
+        }
+    }
+    spin_unlock(&reserved_tasks_list_lock);
+
+    // Calculate the Utilization Bound (UB) for the new task
+    uint32_t UB = utilization_bound(n);
+
+    // To check utilization bound, print out values for n =1,2,3,4,5,6
+    printk(KERN_INFO "utilizationbound n=1: %u\n", utilization_bound(1));
+    printk(KERN_INFO "utilizationbound n=2: %u\n", utilization_bound(2));
+    printk(KERN_INFO "utilizationbound n=3: %u\n", utilization_bound(3));
+    printk(KERN_INFO "utilizationbound n=4: %u\n", utilization_bound(4));
+    printk(KERN_INFO "utilizationbound n=5: %u\n", utilization_bound(5));
+    printk(KERN_INFO "utilizationbound n=6: %u\n", utilization_bound(6));
+
+
+
+    // Compare the Utilization Bound (UB) with the Utilization (U)
+    if (U > UB) {
+        printk(KERN_ERR "check_schedulability: Utilization Bound (UB) test failed\n");
+        return -EBUSY; // Utilization Bound (UB) test failed
+    }
+
+    return 0; // Success
+}
+
 
 SYSCALL_DEFINE4(set_reserve, pid_t, pid, struct timespec __user *, C, struct timespec __user *, T, int, cpuid) {
     struct task_struct *task;
@@ -173,6 +270,11 @@ SYSCALL_DEFINE4(set_reserve, pid_t, pid, struct timespec __user *, C, struct tim
     // ensure non-negative c and t
     if (c.tv_sec < 0 || t.tv_sec < 0 || c.tv_nsec < 0 || t.tv_nsec < 0) {
         return -EINVAL;
+    }
+
+    // Check schedulability before adding
+    if (check_schedulability(cpuid, c, t) < 0){
+        return EBUSY;
     }
 
     // retrieve the task struct
