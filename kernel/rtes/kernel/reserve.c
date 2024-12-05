@@ -271,7 +271,7 @@ int check_schedulability(int cpuid, struct timespec c, struct timespec t) {
             }
         }
     }
-    printk(KERN_INFO "num_task=%d\n", num_task+1);
+    printk(KERN_INFO "num_task=%d\n", num_task);
     
 
 
