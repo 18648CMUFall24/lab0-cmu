@@ -9,7 +9,7 @@
 #include <linux/spinlock.h>
 
 #define MAX_PROCESSORS 4
-#define MAX_TASKS 64
+#define MAX_TASKS 16
 
 enum partition_policy {
     FF,     // First Fit
@@ -62,6 +62,8 @@ struct reservation_data {
 	u64 period_count;
 
     struct task_struct *task;
+    u64 energy_accumulator;                     // Energy accumulator (mJ)
+    struct kobject *energy_kobj;                // kobject for energy monitoring
 
 };
 
@@ -77,7 +79,7 @@ int remove_tid_file(struct task_struct *task);
 // Function declarations for bin packing
 extern enum partition_policy current_policy;
 extern struct bucket_info processors[MAX_PROCESSORS];
-int find_best_processor(uint32_t util, enum partition_policy policy);
+int find_best_processor(uint32_t util, enum partition_policy policy, struct timespec C, struct timespec T);
 void add_task_to_processor(struct task_struct *task, struct timespec C, struct timespec T, int cpuid);
 void remove_task_from_processor(struct task_struct *task);
 void remove_task_from_list(struct task_struct *task);

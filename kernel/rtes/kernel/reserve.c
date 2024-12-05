@@ -62,105 +62,6 @@ void initialize_processors(void) {
     }
 }
 
-int find_best_processor(uint32_t util, enum partition_policy policy) {
-    int best_processor = -1;
-    int i;
-    static int last_processor = 0;
-
-
-    switch (policy) {
-        case FF: // First-Fit
-            for (i = 0; i < MAX_PROCESSORS; i++) {
-                if (processors[i].running_util + util <= 1000) {
-                    return i;
-                }
-            }
-            break;
-
-        case NF: // Next-Fit
-            for (i = 0; i < MAX_PROCESSORS; i++) {
-                int idx = (last_processor + i) % MAX_PROCESSORS;    // Start from the last processor
-                if (processors[idx].running_util + util <= 1000) {
-                    last_processor = idx;
-                    return idx;
-                }
-            }
-            break;
-
-        case BF: // Best-Fit
-            for (i = 0; i < MAX_PROCESSORS; i++) {
-                if (processors[i].running_util + util <= 1000) {
-                    if (best_processor == -1 || processors[i].running_util < processors[best_processor].running_util) {
-                        best_processor = i;         // Update the best processor to find the minimum utilization
-                    }
-                }
-            }
-            return best_processor;
-
-        case WF: // Worst-Fit
-            for (i = 0; i < MAX_PROCESSORS; i++) {
-                if (processors[i].running_util + util <= 1000) {
-                    if (best_processor == -1 || processors[i].running_util > processors[best_processor].running_util) {
-                        best_processor = i;         // opposite of best fit
-                    }
-                }
-            }
-            return best_processor;
-
-        default:
-            printk(KERN_ERR "Unknown partitioning policy.\n");
-            return -1;
-    }
-
-    return -1; // No processor can accommodate the task
-}
-
-void add_task_to_processor(struct task_struct *task, struct timespec C, struct timespec T, int cpuid) {
-    struct bucket_task_ll *new_task;
-    uint32_t util = div_C_T(timespec_to_ns(&C), timespec_to_ns(&T));
-
-    new_task = kmalloc(sizeof(*new_task), GFP_KERNEL);
-    if (!new_task) {
-        printk(KERN_ERR "Failed to allocate memory for task in processor %d\n", cpuid);
-        return;
-    }
-
-    new_task->task = task;
-    new_task->util = util;
-    new_task->cost = C;
-    new_task->period = T;
-    new_task->next = processors[cpuid].first_task;
-    processors[cpuid].first_task = new_task;
-
-    processors[cpuid].running_util += util;
-    processors[cpuid].num_tasks++;
-}
-
-void remove_task_from_processor(struct task_struct *task) {
-    int i;
-    for (i = 0; i < MAX_PROCESSORS; i++) {
-        struct bucket_task_ll *prev = NULL, *curr = processors[i].first_task;
-
-        while (curr) {
-            if (curr->task == task) {
-                if (prev) {
-                    prev->next = curr->next;
-                } else {
-                    processors[i].first_task = curr->next;
-                }
-
-                processors[i].running_util -= curr->util;
-                processors[i].num_tasks--;
-                kfree(curr);
-                return;
-            }
-            prev = curr;
-            curr = curr->next;
-        }
-    }
-    printk(KERN_ERR "Task not found in any processor.\n");
-}
-
 
 // List to store reserved tasks
 static LIST_HEAD(reserved_tasks_list);
@@ -438,6 +339,113 @@ int check_schedulability(int cpuid, struct timespec c, struct timespec t) {
 }
 
 
+int find_best_processor(uint32_t util, enum partition_policy policy, struct timespec C, struct timespec T) {
+    int best_processor = -1;
+    int i;
+    static int last_processor = 0;
+
+
+    switch (policy) {
+        case FF: // First-Fit
+            for (i = 0; i < MAX_PROCESSORS; i++) {
+                if (processors[i].running_util + util <= 1000) {
+                    if (check_schedulability(i, C, T) == 0) {
+                        return i;
+                    }
+                }
+            }
+            break;
+
+        case NF: // Next-Fit
+            for (i = 0; i < MAX_PROCESSORS; i++) {
+                int idx = (last_processor + i) % MAX_PROCESSORS;    // Start from the last processor
+                if (processors[idx].running_util + util <= 1000) {
+                    if (check_schedulability(idx, C, T) == 0) {
+                        last_processor = idx;
+                        return idx;
+                    }
+                }
+            }
+            break;
+
+        case BF: // Best-Fit
+            for (i = 0; i < MAX_PROCESSORS; i++) {
+                if (processors[i].running_util + util <= 1000) {
+                   if (check_schedulability(i, C, T) == 0) {
+                        if (best_processor == -1 || processors[i].running_util < processors[best_processor].running_util) {
+                            best_processor = i;
+                        }
+                    }
+                }
+            }
+            return best_processor;
+
+        case WF: // Worst-Fit
+            for (i = 0; i < MAX_PROCESSORS; i++) {
+                if (processors[i].running_util + util <= 1000) {
+                    if (check_schedulability(i, C, T) == 0) {
+                        if (best_processor == -1 || processors[i].running_util > processors[best_processor].running_util) {
+                            best_processor = i;
+                        }
+                    }
+                }
+            }
+            return best_processor;
+
+        default:
+            printk(KERN_ERR "Unknown partitioning policy.\n");
+            return -1;
+    }
+
+    return -1; // No processor can accommodate the task
+}
+
+void add_task_to_processor(struct task_struct *task, struct timespec C, struct timespec T, int cpuid) {
+    struct bucket_task_ll *new_task;
+    uint32_t util = div_C_T(timespec_to_ns(&C), timespec_to_ns(&T));
+
+    new_task = kmalloc(sizeof(*new_task), GFP_KERNEL);
+    if (!new_task) {
+        printk(KERN_ERR "Failed to allocate memory for task in processor %d\n", cpuid);
+        return;
+    }
+
+    new_task->task = task;
+    new_task->util = util;
+    new_task->cost = C;
+    new_task->period = T;
+    new_task->next = processors[cpuid].first_task;
+    processors[cpuid].first_task = new_task;
+
+    processors[cpuid].running_util += util;
+    processors[cpuid].num_tasks++;
+}
+
+void remove_task_from_processor(struct task_struct *task) {
+    int i;
+    for (i = 0; i < MAX_PROCESSORS; i++) {
+        struct bucket_task_ll *prev = NULL, *curr = processors[i].first_task;
+
+        while (curr) {
+            if (curr->task == task) {
+                if (prev) {
+                    prev->next = curr->next;
+                } else {
+                    processors[i].first_task = curr->next;
+                }
+
+                processors[i].running_util -= curr->util;
+                processors[i].num_tasks--;
+                kfree(curr);
+                return;
+            }
+            prev = curr;
+            curr = curr->next;
+        }
+    }
+    printk(KERN_ERR "Task not found in any processor.\n");
+}
+
 SYSCALL_DEFINE4(set_reserve, pid_t, pid, struct timespec __user *, C, struct timespec __user *, T, int, cpuid) {
     struct task_struct *task;
     struct reservation_data *res_data;
@@ -447,7 +455,7 @@ SYSCALL_DEFINE4(set_reserve, pid_t, pid, struct timespec __user *, C, struct tim
     uint32_t util;
 
     // ensure cpuid is valid
-    if (cpuid < 0 || cpuid > 3) {
+    if (cpuid < -1 || cpuid > 3) {
         return -EINVAL;
     }
 
@@ -466,22 +474,22 @@ SYSCALL_DEFINE4(set_reserve, pid_t, pid, struct timespec __user *, C, struct tim
 
     if (cpuid == -1) { 
         // Handle bin-packing case
-        processor_id = find_best_processor(util, current_policy); 
+        processor_id = find_best_processor(util, current_policy, c, t); 
         if (processor_id < 0) {
             printk(KERN_ERR "Task %d cannot be assigned to any processor.\n", pid);
             return -EBUSY;
         }
         printk(KERN_INFO "Task %d assigned to processor %d\n", pid, processor_id);
-    } else if (cpuid < 0 || cpuid >= MAX_PROCESSORS) {
+    } else if (cpuid < -1|| cpuid >= MAX_PROCESSORS) {
         return -EINVAL; // Invalid CPU ID
     } else {
         processor_id = cpuid; // Single processor specified
+        // Check schedulability before adding
+        // if (check_schedulability(processor_id, c, t) < 0){
+        //     return -EBUSY;
+        // }
     }
 
-    // Check schedulability before adding
-    if (check_schedulability(processor_id, c, t) < 0){
-        return -EBUSY;
-    }
 
     // retrieve the task struct
     if (pid == 0) {
@@ -832,3 +840,5 @@ static int __init partition_policy_init(void)
 // Use postcore so that it runs after rtes_kobj is initialized by taskmon
 postcore_initcall(init_reserve);
 postcore_initcall(partition_policy_init);
+
+
