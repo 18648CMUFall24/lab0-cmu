@@ -29,7 +29,7 @@
 #include <linux/spinlock.h>
 #include "taskmon.h"
 
-#define FIXED_POINT_SHIFT 16
+#define FIXED_POINT_SHIFT 16  // Lower precision for 32-bit systems
 #define FIXED_POINT_MULT (1 << FIXED_POINT_SHIFT)
 
 // List to store reserved tasks
@@ -155,24 +155,21 @@ enum hrtimer_restart reservation_timer_callback(struct hrtimer *timer) {
     return HRTIMER_RESTART;
 }
 
-// Fixed-point approximation of 2^(1/n)
 uint32_t fixed_point_pow(uint32_t n) {
     uint64_t low = FIXED_POINT_MULT;      // Start at 1.0 in fixed-point
     uint64_t high = FIXED_POINT_MULT * 2; // Start at 2.0 in fixed-point
-    uint64_t mid, pow_mid, i;
-
+    uint64_t mid, pow_mid;
+    uint32_t i;
     if (n == 1) {
         return FIXED_POINT_MULT * 2; // 2^1 in fixed-point
     }
-
     while (high - low > 1) {
-        mid = (low + high) / 2;
-
+        mid = div_u64(low + high, 2); // Compute midpoint
         // Compute mid^n in fixed-point
         pow_mid = FIXED_POINT_MULT; // Start with 1.0
         for (i = 0; i < n; i++) {
-            pow_mid = (pow_mid * mid) / FIXED_POINT_MULT; // Scale back
-            if (pow_mid >= FIXED_POINT_MULT * 2) {        // Overflow check
+            pow_mid = div_u64(pow_mid * mid, FIXED_POINT_MULT); // Scale back
+            if (pow_mid >= FIXED_POINT_MULT * 2) {             // Overflow check
                 pow_mid = FIXED_POINT_MULT * 2;
                 break;
             }
@@ -187,21 +184,19 @@ uint32_t fixed_point_pow(uint32_t n) {
     return (uint32_t)low; // Approximation of 2^(1/n) in fixed-point
 }
 uint32_t utilization_bound(uint32_t n) {
-    uint32_t pow_2_1_n, fixed_point_result;
-    uint64_t term;
+    uint64_t term, fixed_point_result;
 
     if (n == 1) {
         return FIXED_POINT_MULT; // Utilization bound for n=1 is exactly 1.0
     }
-
     // Calculate 2^(1/n) in fixed-point
-    pow_2_1_n = fixed_point_pow(n);
+    uint32_t pow_2_1_n = fixed_point_pow(n);
 
     // Calculate n * (2^(1/n) - 1) using wide arithmetic to avoid overflow
     term = (uint64_t)(pow_2_1_n - FIXED_POINT_MULT) * n; // n * (2^(1/n) - 1)
-    fixed_point_result = (uint32_t)(term / FIXED_POINT_MULT); // Scale back
+    fixed_point_result = div_u64(term, FIXED_POINT_MULT); // Scale back
 
-    return fixed_point_result;
+    return (uint32_t)fixed_point_result;
 }
 
 uint32_t div_C_T(uint32_t C, uint32_t T)
