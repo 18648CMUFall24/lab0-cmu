@@ -26,9 +26,11 @@
 #include <errno.h>
 #include <signal.h>
 #include <sys/types.h>
+#include <sys/syscall.h>
 
 #define SIGEXCESS 33
 #define _NR_end_job 381
+#define _NR_set_reserve 379
 
 int parse_cmd_args(int argc, char *argv[], int32_t *C, int32_t *T, int32_t *cpuid)
 {
@@ -119,14 +121,26 @@ int main(int argc, char *argv[])
 {
     // Parse the arguments to integers
     int32_t C, T, cpuid;
+    struct timespec cost, period;
     if (parse_cmd_args(argc, argv, &C, &T, &cpuid) < 0)
         exit(1);
 
     // Set the CPU affinity, so the process runs on the specified CPU
     set_cpu(cpuid);
 
+    cost.tv_sec = C / 1000;
+    cost.tv_nsec = (C % 1000) * 1000000 + 5000000; // Add buffer
+    period.tv_sec = T / 1000;
+    period.tv_nsec = (T % 1000) * 1000000;
+
     // Register signal handlers
     signal(SIGEXCESS, sigexcess_handler);
+
+    if (syscall(_NR_set_reserve, 0, &cost, &period, cpuid) < 0) {
+        perror("Failed to set reservation");
+        exit(1);
+    }
+
     signal(SIGTSTP, sigtstp_handler);
 
     // Print some extra info
@@ -153,7 +167,11 @@ int main(int argc, char *argv[])
 
         // Periodic task is suspended for T - C ms //////////////////
         // usleep: suspend execution for microsecond intervals
-        usleep((T /*ms*/ - C /*ms*/) * 1000 /*us*/); // ms to us
+        // usleep((T /*ms*/ - C /*ms*/) * 1000 /*us*/); // ms to us
+        if (syscall(_NR_end_job) < 0) {
+            perror("end_job failed");
+            exit(1);
+        }
     }
 
     return 0; // Return success
