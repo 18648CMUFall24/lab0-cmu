@@ -212,8 +212,8 @@ int check_schedulability(int cpuid, struct timespec c, struct timespec t) {
     // Calculate the Utilization Bound (UB) for the new task
     UB = utilization_bound(n);
 
-    printf("n=%d\n", n);
-    printf("UB: %d, U: %d\n", UB, U);
+    printk(KERN_INFO "n=%d\n", n);
+    printk(KERN_INFO "UB: %d, U: %d\n", UB, U);
     // Compare the Utilization Bound (UB) with the Utilization (U)
     if (U > UB) {
         printk(KERN_ERR "check_schedulability: Utilization Bound (UB) test failed\n");
