@@ -156,38 +156,49 @@ enum hrtimer_restart reservation_timer_callback(struct hrtimer *timer) {
 }
 
 // Fixed-point approximation of 2^(1/n)
-uint32_t fixed_point_pow(uint32_t n)
-{
-    uint64_t low = FIXED_POINT_MULT;          // Start at 1.0 in fixed-point
-    uint64_t high = FIXED_POINT_MULT * 2;     // Start at 2.0 in fixed-point
+uint32_t fixed_point_pow(uint32_t n) {
+    if (n == 1) {
+        return FIXED_POINT_MULT * 2; // 2^1 in fixed-point
+    }
+
+    uint64_t low = FIXED_POINT_MULT;      // Start at 1.0 in fixed-point
+    uint64_t high = FIXED_POINT_MULT * 2; // Start at 2.0 in fixed-point
     uint64_t mid;
+
     while (high - low > 1) {
         mid = (low + high) / 2;
+
         // Compute mid^n in fixed-point
-        uint64_t pow_mid = mid;
-        for (uint32_t i = 1; i < n; i++) {
+        uint64_t pow_mid = FIXED_POINT_MULT; // Start with 1.0
+        for (uint32_t i = 0; i < n; i++) {
             pow_mid = (pow_mid * mid) / FIXED_POINT_MULT; // Scale back
-            if (pow_mid > FIXED_POINT_MULT * 2) break;    // Early exit if overflow
+            if (pow_mid >= FIXED_POINT_MULT * 2) {        // Overflow check
+                pow_mid = FIXED_POINT_MULT * 2;
+                break;
+            }
         }
+
         if (pow_mid > FIXED_POINT_MULT * 2)
             high = mid; // Mid is too large
         else
             low = mid;  // Mid is too small
     }
-    return low; // Approximation of 2^(1/n) in fixed-point
+
+    return (uint32_t)low; // Approximation of 2^(1/n) in fixed-point
 }
-uint32_t utilization_bound (uint32_t n)
-{
-    uint64_t term, fixed_point_result;
+uint32_t utilization_bound(uint32_t n) {
+    if (n == 1) {
+        return FIXED_POINT_MULT; // Utilization bound for n=1 is exactly 1.0
+    }
 
     // Calculate 2^(1/n) in fixed-point
     uint32_t pow_2_1_n = fixed_point_pow(n);
 
-    // Calculate n * (2^(1/n) - 1) using 64-bit to avoid overflow
-    term = (uint64_t)(pow_2_1_n - FIXED_POINT_MULT) * n; // Scale (2^(1/n) - 1) by n
-    fixed_point_result = term / FIXED_POINT_MULT;        // Scale back to fixed-point
+    // Calculate n * (2^(1/n) - 1) using wide arithmetic to avoid overflow
+    uint64_t term = (uint64_t)(pow_2_1_n - FIXED_POINT_MULT) * n; // n * (2^(1/n) - 1)
+    uint32_t fixed_point_result = (uint32_t)(term / FIXED_POINT_MULT); // Scale back
 
-    return (uint32_t)fixed_point_result;
+    return fixed_point_result;
 }
 
 uint32_t div_C_T(uint32_t C, uint32_t T)
@@ -239,12 +250,18 @@ int check_schedulability(int cpuid, struct timespec c, struct timespec t) {
     UB = utilization_bound(n);
 
     // To check utilization bound, print out values for n =1,2,3,4,5,6
-    printk(KERN_INFO "utilizationbound n=1: %u\n", utilization_bound(1));
-    printk(KERN_INFO "utilizationbound n=2: %u\n", utilization_bound(2));
-    printk(KERN_INFO "utilizationbound n=3: %u\n", utilization_bound(3));
-    printk(KERN_INFO "utilizationbound n=4: %u\n", utilization_bound(4));
-    printk(KERN_INFO "utilizationbound n=5: %u\n", utilization_bound(5));
-    printk(KERN_INFO "utilizationbound n=6: %u\n", utilization_bound(6));
+printk(KERN_INFO "Utilization bound n=1: %u.%04u\n", 
+       utilization_bound(1) / FIXED_POINT_MULT, utilization_bound(1) % FIXED_POINT_MULT);
+printk(KERN_INFO "Utilization bound n=2: %u.%04u\n", 
+       utilization_bound(2) / FIXED_POINT_MULT, utilization_bound(2) % FIXED_POINT_MULT);
+printk(KERN_INFO "Utilization bound n=3: %u.%04u\n", 
+       utilization_bound(3) / FIXED_POINT_MULT, utilization_bound(3) % FIXED_POINT_MULT);
+printk(KERN_INFO "Utilization bound n=4: %u.%04u\n",
+         utilization_bound(4) / FIXED_POINT_MULT, utilization_bound(4) % FIXED_POINT_MULT);
+printk(KERN_INFO "Utilization bound n=5: %u.%04u\n",
+            utilization_bound(5) / FIXED_POINT_MULT, utilization_bound(5) % FIXED_POINT_MULT);
+printk(KERN_INFO "Utilization bound n=6: %u.%04u\n",
+            utilization_bound(6) / FIXED_POINT_MULT, utilization_bound(6) % FIXED_POINT_MULT);
 
 
 
