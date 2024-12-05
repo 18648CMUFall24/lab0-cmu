@@ -29,6 +29,8 @@
 #include <linux/spinlock.h>
 #include "taskmon.h"
 
+#define MAX_TASKS 32
+
 // List to store reserved tasks
 static LIST_HEAD(reserved_tasks_list);
 // Mutex for tasks list
@@ -175,6 +177,55 @@ uint32_t div_C_T(uint32_t C, uint32_t T)
     return result_C_T;
 }
 
+static int response_time_test(struct timespec *c, struct timespec *t, int task_idx, int total_tasks, struct timespec *c_list, struct timespec *t_list) {
+    uint64_t R_prev, R_curr, T_i, C_i, C_j, T_j, interference;
+    int iteration, j;
+
+    // task under test, start rt test when that task begins to need more than UB
+    C_i = timespec_to_ns(&c_list[task_idx]);
+    T_i = timespec_to_ns(&t_list[task_idx]);
+
+    printk(KERN_INFO "Starting RT Test for Task.\n");
+    // response time R_0 = C_1 + C_2 + ... + C_i
+    R_prev = 0;
+    for (j = 0; j <= task_idx; j++) {
+        R_prev += timespec_to_ns(&c_list[j]);
+    }
+
+    // iteratively calculate response time , use 50 as max iterations
+    for (iteration = 0; iteration < 50; iteration++) {
+        interference = 0;
+
+        for (j = 0; j < task_idx; j++) {
+            T_j = timespec_to_ns(&t_list[j]);
+            C_j = timespec_to_ns(&c_list[j]);
+            interference += div64_u64((R_prev + T_j - 1), T_j) * C_j; // ceil(R_prev/T_j) * C_j
+        }
+
+        // Calculate new response time
+        R_curr = C_i + interference;
+
+        // Check if response time converges
+        if (R_curr == R_prev) {
+            if (R_curr <= T_i) {
+                return 0; // schedulable
+            } else {
+                
+                return -EBUSY; // not schedulable
+            }
+        }
+
+        R_prev = R_curr;
+        if (iteration == 49) {
+            printk(KERN_ERR "RT test did not converge for task %d.\n", task_idx);
+            return -EBUSY;
+        }
+    }
+
+    printk(KERN_ERR "Task %d failed RT test with response time R_curr=%llu and T_i=%llu.\n", task_idx, R_curr, T_i);
+    return -EBUSY; 
+}
+
 /**
  * Check if new task can be schedulable based on UB and then RT tests
  * @param cpuid cpu id to check schedulability
@@ -183,42 +234,82 @@ uint32_t div_C_T(uint32_t C, uint32_t T)
  */
 int check_schedulability(int cpuid, struct timespec c, struct timespec t) {
     // Utilization Bound (UB) Test
-    
-    // n = number of tasks
-    uint32_t UB, C, T, U;
+    uint32_t UB, C_i, T_i, U = 0;
     struct task_node *node;
     struct reservation_data *res_data;
+    struct timespec c_list[MAX_TASKS], t_list[MAX_TASKS];
     // Init variables with the newly added task
-    int n = 1;
-    C = timespec_to_ns(&c);
-    T = timespec_to_ns(&t);
-    U = div_C_T(C, T);
+    int num_task = 0;
+    int i, j, k;
 
-    // Iterate over reserved_tasks_list
+    c_list[num_task] = c;
+    t_list[num_task] = t;
+    num_task++;
+
+    // get the a list for each task on the same cpu
     spin_lock(&reserved_tasks_list_lock);
     list_for_each_entry(node, &reserved_tasks_list, list) {
         // Only if on the same cpu, take into account
         if (task_cpu(node->task) == cpuid) {
             res_data = node->task->reservation_data;
-            // U = C/T
-            printk(KERN_INFO "ADDING C/T=%d/%d\n", C, T);
-            U += div_C_T(timespec_to_ns(&res_data->reserve_C), timespec_to_ns(&res_data->reserve_T));
-            n++; // Increment number of tasks
+            c_list[num_task] = res_data->reserve_C;
+            t_list[num_task] = res_data->reserve_T;
+            num_task++;
         }
     }
     spin_unlock(&reserved_tasks_list_lock);
 
-    // Calculate the Utilization Bound (UB) for the new task
-    UB = utilization_bound(n);
-
-    printk(KERN_INFO "n=%d\n", n);
-    printk(KERN_INFO "UB: %d, U: %d\n", UB, U);
-    // Compare the Utilization Bound (UB) with the Utilization (U)
-    if (U > UB) {
-        printk(KERN_ERR "check_schedulability: Utilization Bound (UB) test failed\n");
-        return -EBUSY; // Utilization Bound (UB) test failed
+    // bubble sort the tasks based on period in ascending order
+    for (i = 0; i < num_task - 1; i++) {
+        for (j = i + 1; j < num_task; j++) {
+            if (timespec_to_ns(&t_list[i]) > timespec_to_ns(&t_list[j])) {
+                struct timespec tmp_c = c_list[i], tmp_t = t_list[i];
+                c_list[i] = c_list[j];
+                t_list[i] = t_list[j];
+                c_list[j] = tmp_c;
+                t_list[j] = tmp_t;
+            }
+        }
     }
+    printk(KERN_INFO "num_task=%d\n", num_task+1);
+    
 
+
+     // Perform UB Test and RT Test if necessary
+    for (i = 0; i < num_task; i++) {
+        C_i = timespec_to_ns(&c_list[i]);
+        T_i = timespec_to_ns(&t_list[i]);
+        U += div_C_T(C_i, T_i);
+
+        UB = utilization_bound(i + 1);
+        printk(KERN_INFO "UB Test: Task %d, U=%u, UB=%u.\n", i + 1, U, UB);
+
+        if (U > UB) {
+            // UB test fails; perform RT test
+            printk(KERN_INFO "UB test failed at task %d. Running RT test.\n", i+1);
+
+            if (num_task >= MAX_TASKS) {
+                printk(KERN_ERR "Exceeded MAX_TASKS for schedulability check.\n");
+                return -ENOMEM;
+            }
+
+            if (response_time_test(c_list, t_list, i, num_task, c_list, t_list) != 0) {
+                printk(KERN_ERR "Task %d failed RT test. Not schedulable.\n", i);
+                return -EBUSY;
+            }
+
+            // continue testing subsequent tasks
+            for (k = i + 1; k < num_task; k++) {
+                if (response_time_test(c_list, t_list, k, num_task, c_list, t_list) != 0) {
+                    printk(KERN_ERR "Task %d failed RT test. Not schedulable.\n", k);
+                    return -EBUSY; 
+                }
+            }
+
+            break; 
+        }
+    }
+    printk(KERN_INFO "Task schedulable on CPU %d\n", cpuid);
     return 0; // Success
 }
 
@@ -247,7 +338,7 @@ SYSCALL_DEFINE4(set_reserve, pid_t, pid, struct timespec __user *, C, struct tim
 
     // Check schedulability before adding
     if (check_schedulability(cpuid, c, t) < 0){
-        return EBUSY;
+        return -EBUSY;
     }
 
     // retrieve the task struct

@@ -3173,6 +3173,7 @@ context_switch(struct rq *rq, struct task_struct *prev,
 		budget_ns = timespec_to_ns(&prev->reservation_data->reserve_C);
 		if (prev->reservation_data->exec_accumulated_time >= budget_ns) {
 			printk(KERN_INFO "PID %d exceeded budget, forcing a reschedule!\n", prev->pid);
+			printk(KERN_INFO "PID %d: exec_accumulated_time: %llu, budget_ns: %llu\n", prev->pid, prev->reservation_data->exec_accumulated_time, budget_ns);
 
 			// Set task state to TASK_UNINTERRUPTIBLE
 			prev->state = TASK_UNINTERRUPTIBLE;
