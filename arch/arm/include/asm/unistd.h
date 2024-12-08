@@ -409,6 +409,7 @@
 #define __NR_list_rt_threads 	(__NR_SYSCALL_BASE+378)
 #define __NR_set_reserve		(__NR_SYSCALL_BASE+379)
 #define __NR_cancel_reserve 	(__NR_SYSCALL_BASE+380)
+#define __NR_end_job		 	(__NR_SYSCALL_BASE+381)
 
 /*
  * The following SWIs are ARM private.

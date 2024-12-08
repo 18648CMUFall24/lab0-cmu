@@ -89,6 +89,8 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/sched.h>
 
+#include "rtes/kernel/energy.h"
+
 /*
  * Convert user-nice values [ -20 ... 0 ... 19 ]
  * to static priority [ MAX_RT_PRIO..MAX_PRIO-1 ],
@@ -3027,13 +3029,6 @@ prepare_task_switch(struct rq *rq, struct task_struct *prev,
 	prepare_lock_switch(rq, next);
 	prepare_arch_switch(next);
 
-	/* accumulator tracker */
-	if (next && next->reservation_data && next->reservation_data->has_reservation) {
-        getrawmonotonic(&next->reservation_data->exec_start_time);
-        // printk(KERN_DEBUG "prepare_task_switch: PID %d exec_start_time set to %ld.%09ld\n",
-        //        next->pid, next->reservation_data->exec_start_time.tv_sec,
-        //        next->reservation_data->exec_start_time.tv_nsec);
-    }
 	trace_sched_switch(prev, next);
 }
 
@@ -3057,7 +3052,6 @@ static void finish_task_switch(struct rq *rq, struct task_struct *prev)
 {
 	struct mm_struct *mm = rq->prev_mm;
 	long prev_state;
-	struct timespec now, delta;
 
 	rq->prev_mm = NULL;
 
@@ -3082,14 +3076,6 @@ static void finish_task_switch(struct rq *rq, struct task_struct *prev)
 	local_irq_enable();
 #endif /* __ARCH_WANT_INTERRUPTS_ON_CTXSW */
 	finish_lock_switch(rq, prev);
-
-	/* accumulator tracker */
-	if (prev && prev->reservation_data && prev->reservation_data->has_reservation) {
-        // printk(KERN_INFO "Enter finish task switch for PID %d", prev->pid);
-        getrawmonotonic(&now);
-        delta = timespec_sub(now, prev->reservation_data->exec_start_time);
-        prev->reservation_data->exec_accumulated_time = timespec_add(prev->reservation_data->exec_accumulated_time, delta);
-    }
 	
 	fire_sched_in_preempt_notifiers(current);
 	if (mm)
@@ -3174,6 +3160,59 @@ context_switch(struct rq *rq, struct task_struct *prev,
 	       struct task_struct *next)
 {
 	struct mm_struct *mm, *oldmm;
+	struct timespec now;
+	u64 delta, budget_ns;		
+
+	/* accumulator tracker: stop time for previous timer */
+	if (prev && prev->reservation_data && prev->reservation_data->has_reservation) {
+        // printk(KERN_INFO "Enter finish task switch for PID %d", prev->pid);
+        getrawmonotonic(&now);
+        delta = timespec_to_ns(&now) - timespec_to_ns(&(prev->reservation_data->exec_start_time));
+        // printk(KERN_DEBUG "END timer: PID %d: Add to exec time: %llu + %llu\n", prev->pid, prev->reservation_data->exec_accumulated_time, delta);
+        prev->reservation_data->exec_accumulated_time += delta;
+		// add_energy(2);
+
+		// printk(KERN_DEBUG "END timer: PID %d exec_accumulated_time: %llu\n", prev->pid, prev->reservation_data->exec_accumulated_time);
+		// printk(KERN_INFO "context_switch: PID %d -> PID %d\n", prev ? prev->pid : -1, next ? next->pid : -1);
+		// printk(KERN_INFO "context_switch: PID %d exec_accumulated_time=%llu, budget_ns=%llu\n",
+		// 	prev ? prev->pid : -1,
+		// 	prev ? prev->reservation_data->exec_accumulated_time : 0,
+		// 	prev ? timespec_to_ns(&prev->reservation_data->reserve_C) : 0);
+
+		// After calculating the new accumulated time, check that the task has not exceeded its budget
+		budget_ns = timespec_to_ns(&prev->reservation_data->reserve_C);
+		if (prev->reservation_data->exec_accumulated_time >= budget_ns) {
+			printk(KERN_INFO "PID %d exceeded budget, forcing a reschedule!\n", prev->pid);
+			// printk(KERN_INFO "PID %d: exec_accumulated_time: %llu, budget_ns: %llu\n", prev->pid, prev->reservation_data->exec_accumulated_time, budget_ns);
+
+			// Set task state to TASK_UNINTERRUPTIBLE
+			prev->state = TASK_UNINTERRUPTIBLE;
+			// Force a reschedule
+			set_tsk_need_resched(prev);
+
+			/**
+			// Send SIGEXCESS signal to process
+			struct siginfo info; 
+			memset(&info, 0, sizeof(struct siginfo));
+			info.si_signo = SIGEXCESS;
+			info.si_code = SI_KERNEL;
+
+			if (send_sig_info(SIGEXCESS, &info, task) < 0) {
+				printk(KERN_ERR "Failed to send SIGEXCESS to PID %d\n", task->pid);
+			} else {
+				remove_tid_file(task);
+				cleanup_utilization_data(task);
+				printk(KERN_INFO "SIGEXCESS sent to PID %d\n", task->pid);
+			}
+			**/
+		}
+    }
+    /* accumulator tracker: start timer for the next task after finishing task switch */
+	if (next && next->reservation_data && next->reservation_data->has_reservation) {
+        getrawmonotonic(&next->reservation_data->exec_start_time);
+        // printk(KERN_DEBUG "START timer: prepare_task_switch: PID %d exec_start_time set to %llu\n",
+        //        next->pid, timespec_to_ns(&(next->reservation_data->exec_start_time)));
+    }
 
 	prepare_task_switch(rq, prev, next);
 

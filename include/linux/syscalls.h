@@ -852,4 +852,5 @@ asmlinkage long sys_count_rt_threads(void);
 asmlinkage long sys_list_rt_threads(struct rt_thread __user *rt_thread, unsigned int num_threads);
 asmlinkage long sys_set_reserve(pid_t tid, struct timespec __user *C, struct timespec __user *T, int cpuid);
 asmlinkage long sys_cancel_reserve(pid_t tid);
+asmlinkage long sys_end_job(void);
 #endif

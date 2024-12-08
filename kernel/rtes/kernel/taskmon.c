@@ -31,12 +31,13 @@
 #include <linux/spinlock.h>
 #include <linux/math64.h>
 #include <linux/reservation.h> // For struct data_point
+#include "taskmon.h"
 
 
 bool taskmon_enabled = false;
-static struct kobject *rtes_kobj;    // kobject for /rtes
-static struct kobject *taskmon_kobj; // kobject for /rtes/taskmon
-static struct kobject *util_kobj;    // kobject for /rtes/taskmon/util
+struct kobject *rtes_kobj;    // kobject for /rtes
+struct kobject *taskmon_kobj; // kobject for /rtes/taskmon
+struct kobject *util_kobj;    // kobject for /rtes/taskmon/util
 
 struct tid_attr_node
 {
@@ -114,11 +115,11 @@ static ssize_t tid_show(struct kobject *kobj, struct kobj_attribute *attr, char 
     printk(KERN_INFO "tid_show: PID = %d\n", pid);
     
     res_data = task->reservation_data;      // Get the reservation data
-    if (!res_data || !res_data->monitoring_enabled) {
-        printk(KERN_ERR "tid_show: No reservation data for PID %d\n", pid);
+    if (!res_data) {
         put_task_struct(task);
-        return sprintf(buf, "No reservation data available for PID %d\n", pid);;
+        return snprintf(buf, PAGE_SIZE, "No reservation data available\n");
     }
+
     spin_lock_irqsave(&res_data->data_lock, flags);
     if (list_empty(&res_data->data_points)) {
         spin_unlock_irqrestore(&res_data->data_lock, flags);
@@ -162,7 +163,7 @@ static ssize_t tid_show(struct kobject *kobj, struct kobj_attribute *attr, char 
  */
 static struct kobj_attribute enabled_attr = __ATTR(enabled, 0660, enabled_show, enabled_store);
 
-int init_kobjects(void)
+int __init init_kobjects(void)
 {
     // Create a kobject named "rtes" under the kernel kobject /sys
     rtes_kobj = kobject_create_and_add("rtes", NULL); // use NULL for /sys/ instead of kernel_kobj); which is /sys/kernel
@@ -296,13 +297,11 @@ int create_tid_file(struct task_struct *task)
         kfree(tid_attr);
         return -ENOMEM;
     }
-    printk(KERN_INFO "DEBUG: 6\n");
     new_node->attr = tid_attr;
     mutex_lock(&tid_attr_list_mutex);
     new_node->next = tid_attr_list;
     tid_attr_list = new_node;
     mutex_unlock(&tid_attr_list_mutex);
-    printk(KERN_INFO "DEBUG: 7\n");
     printk(KERN_INFO "create_tid_file: Successfully created sysfs file /sys/rtes/taskmon/util/%d\n", task->pid);
     return 0; // Success
 }
@@ -371,6 +370,12 @@ void cleanup_utilization_data(struct task_struct *task)
     struct reservation_data *res_data = task->reservation_data;
     unsigned long flags;
     struct data_point *point, *tmp;
+     // Get reservation data
+    res_data = task->reservation_data;
+    if (!res_data) {
+        printk(KERN_ERR "cleanup_utilization_data: No reservation data for task\n");
+        return;
+    }
 
     spin_lock_irqsave(&res_data->data_lock, flags);
 
@@ -379,8 +384,10 @@ void cleanup_utilization_data(struct task_struct *task)
         kfree(point);
     }
 
+    INIT_LIST_HEAD(&res_data->data_points);
     spin_unlock_irqrestore(&res_data->data_lock, flags);
 
+    printk(KERN_INFO "cleanup_utilization_data: Cleaned up utilization data for PID %d\n", task->pid);
 }
 
 /// Enable monitoring for all tasks with reservations
@@ -394,7 +401,7 @@ void enable_monitoring_for_all_tasks(void)
             task->reservation_data->monitoring_enabled = true;
             spin_lock_init(&task->reservation_data->data_lock);
             INIT_LIST_HEAD(&task->reservation_data->data_points);
-            // create_tid_file(task);
+            printk(KERN_INFO "Monitoring enabled for PID %d\n", task->pid);
         }
     }
     read_unlock(&tasklist_lock);
@@ -409,12 +416,11 @@ void disable_monitoring_for_all_tasks(void)
     for_each_process(task) {
         if (task->reservation_data && task->reservation_data->has_reservation) {
             task->reservation_data->monitoring_enabled = false;
-            cleanup_utilization_data(task);
+            // cleanup_utilization_data(task);
+            // printk(KERN_INFO "Monitoring disabled for PID %d. Data cleaned up.\n", task->pid);
         }
     }
     read_unlock(&tasklist_lock);
-
-    free_tid_attr_list();
 }
 
 
@@ -422,6 +428,8 @@ void disable_monitoring_for_all_tasks(void)
 static int __init init_taskmon(void)
 {
     int ret;
+    free_tid_attr_list();
+    release_kobjects();
 
     ret = init_kobjects();
     if (ret != 0) {
@@ -436,12 +444,6 @@ static int __init init_taskmon(void)
     }
     printk(KERN_INFO "Taskmon loaded in the kernel\n");
     return 0;
-}
-
-void cleanup_taskmon(void)
-{
-    disable_monitoring_for_all_tasks();
-    release_kobjects();
 }
 
 core_initcall(init_taskmon);
