@@ -25,9 +25,10 @@ The work queue handler can blocking operations like sleep as it operates in proc
  
 Real time signals are queued up and have a higher range of identifiers, while regular signals are not. When multiple regular signals are sent before handled, they may be merged or dropped. Thus each instance of real time signals is delivered without loss.
 
-
 ### Q4. (1 point)
 >What kernel subsystem decides which sleep state the processor enters and what parameters
 does it use to make the decision?
 
 Power management system such as CPUIdle in linux. Various parameters could be considered based on system design, for example, user space instructions, CPU utilization, latency constraints and energy goals, etc.
+
+![2.5.3](https://raw.githubusercontent.com/18648CMUFall24/lab0-cmu/refs/heads/lab-3/writeups/Untitled.png)
