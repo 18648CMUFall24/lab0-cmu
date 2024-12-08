@@ -9,11 +9,16 @@
 #include <linux/cpu.h>
 #include <linux/kernel.h>
 #include <linux/string.h>
+#include <linux/spinlock.h>
+#include <linux/math64.h>
 
 
 bool energy_mon_enabled = false;
+u64 accum_energy = 0;
 struct kobject *config_kobj; // kobject for /rtes/config
 struct kobject *tasks_kobj;  // kobject for /rtes/tasks
+
+static spinlock_t accum_energy_lock;
 
 typedef struct {
     uint32_t freq; 
@@ -114,29 +119,34 @@ static ssize_t config_energy_store(struct kobject *kobj, struct kobj_attribute *
     if (buf[0] == '1')
     {
         energy_mon_enabled = true;
-        // TODO: code here to start monitoring
         // Start monitoring
+        spin_lock(&accum_energy_lock);
+        accum_energy = 0; // reset accum energy
+        spin_unlock(&accum_energy_lock);
         printk(KERN_INFO "energymon enabled\n");
     }
     else if (buf[0] == '0')
     {
         energy_mon_enabled = false;
-        // TODO: code here to stop monitoring
         // Stop monitoring
         printk(KERN_INFO "energymon disabled\n");
+        spin_lock(&accum_energy_lock);
+        printk(KERN_INFO "=> accum_energy: %d\n", accum_energy);
+        spin_unlock(&accum_energy_lock);
     }
     return count;
 }
 static ssize_t energy_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
 {
     // /sys/rtes/energy mJ total energy consumed by the system (all tasks present and past)
-    // TODO: return the energy
-    return sprintf(buf, "%d\n", (int)1234);
+    return sprintf(buf, "%d\n", accum_energy);
 }
 static ssize_t energy_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count)
 {
     // Writing any value to /sys/rtes/energy should reset the total energy accumulator to zero.
-    // TODO: code here to reset the energy accumulator
+    spin_lock(&accum_energy_lock);
+    accum_energy = 0; // Reset
+    spin_unlock(&accum_energy_lock);
     return count;
 }
 static ssize_t freq_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
@@ -193,7 +203,6 @@ static ssize_t freq_show(struct kobject *kobj, struct kobj_attribute *attr, char
 int read_freq(void) {
     struct file *file;
     char buffer[64];
-    loff_t pos = 0;
     ssize_t len;
     int freq = 0;
 
@@ -228,6 +237,20 @@ int read_freq(void) {
 
     // Return the integer value
     return freq;
+}
+// Read and return int value from /sys/rtes/power file
+u64 read_power(void) {
+    uint32_t i=0, freq=0;
+    freq = read_freq(); // MHz
+    
+    for (i=0; i<NUM_FREQS; i++) {
+        // Iterate through table to get power for this frequency
+        if (freq_to_power_table[i].freq == freq) {
+            return (u64) freq_to_power_table[i].power;
+        }
+    }
+
+    return 0;
 }
 
 static ssize_t power_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
@@ -312,6 +335,9 @@ static int __init init_energy(void)
 {
     int ret;
 
+    // Init spin lock
+    spin_lock_init(&accum_energy_lock);
+
     // Init energy kobjects
     ret = init_energy_kobjects();
     if (ret != 0)
@@ -328,6 +354,27 @@ static int __init init_energy(void)
     }
 
     return 0; // Success
+}
+
+int add_energy(u64 time_delta) {
+    u64 power, new_energy;
+
+    if (!energy_mon_enabled)
+        return -1; // Not monitoring
+    
+    // E(f,t) = P(f)*t
+    power = read_power();
+    printk(KERN_INFO "DEBUG: AFTER power: %d\n", power);
+
+    spin_lock(&accum_energy_lock);
+    new_energy = power* div64_s64(time_delta, (uint64_t)1000);
+    printk(KERN_INFO "DEBUG: new_energy = %d\n", new_energy);
+
+    accum_energy += new_energy;
+    printk(KERN_INFO "DEBUG: Add energy here\n");
+    spin_unlock(&accum_energy_lock);
+
+    return 0; // success
 }
 
 // Use postcore so that it runs after rtes_kobj is initialized by taskmon

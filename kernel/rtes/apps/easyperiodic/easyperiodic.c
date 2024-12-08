@@ -129,7 +129,7 @@ int main(int argc, char *argv[])
     set_cpu(cpuid);
 
     cost.tv_sec = C / 1000;
-    cost.tv_nsec = (C % 1000) * 1000000 + 5000000; // Add buffer
+    cost.tv_nsec = (C % 1000) * 1000000 + 20000000; // Add buffer
     period.tv_sec = T / 1000;
     period.tv_nsec = (T % 1000) * 1000000;
 
@@ -167,11 +167,11 @@ int main(int argc, char *argv[])
 
         // Periodic task is suspended for T - C ms //////////////////
         // usleep: suspend execution for microsecond intervals
-        // usleep((T /*ms*/ - C /*ms*/) * 1000 /*us*/); // ms to us
-        if (syscall(_NR_end_job) < 0) {
-            perror("end_job failed");
-            exit(1);
-        }
+        usleep((T /*ms*/ - C /*ms*/) * 1000 /*us*/); // ms to us
+        // if (syscall(_NR_end_job) < 0) {
+        //     perror("end_job failed");
+        //     exit(1);
+        // }
     }
 
     return 0; // Return success

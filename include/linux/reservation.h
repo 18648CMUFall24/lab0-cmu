@@ -15,7 +15,8 @@ enum partition_policy {
     FF,     // First Fit
     NF,     // Next Fit
     BF,     // Best Fit
-    WF      // Worst Fit
+    WF,      // Worst Fit
+    LST     // List Scheduling
 };
 
 // Task structure for bin-packing

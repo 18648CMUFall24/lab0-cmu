@@ -89,6 +89,8 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/sched.h>
 
+#include "rtes/kernel/energy.h"
+
 /*
  * Convert user-nice values [ -20 ... 0 ... 19 ]
  * to static priority [ MAX_RT_PRIO..MAX_PRIO-1 ],
@@ -3168,7 +3170,9 @@ context_switch(struct rq *rq, struct task_struct *prev,
         delta = timespec_to_ns(&now) - timespec_to_ns(&(prev->reservation_data->exec_start_time));
         // printk(KERN_DEBUG "END timer: PID %d: Add to exec time: %llu + %llu\n", prev->pid, prev->reservation_data->exec_accumulated_time, delta);
         prev->reservation_data->exec_accumulated_time += delta;
-		printk(KERN_DEBUG "END timer: PID %d exec_accumulated_time: %llu\n", prev->pid, prev->reservation_data->exec_accumulated_time);
+		// add_energy(2);
+
+		// printk(KERN_DEBUG "END timer: PID %d exec_accumulated_time: %llu\n", prev->pid, prev->reservation_data->exec_accumulated_time);
 		// printk(KERN_INFO "context_switch: PID %d -> PID %d\n", prev ? prev->pid : -1, next ? next->pid : -1);
 		// printk(KERN_INFO "context_switch: PID %d exec_accumulated_time=%llu, budget_ns=%llu\n",
 		// 	prev ? prev->pid : -1,
@@ -3179,7 +3183,7 @@ context_switch(struct rq *rq, struct task_struct *prev,
 		budget_ns = timespec_to_ns(&prev->reservation_data->reserve_C);
 		if (prev->reservation_data->exec_accumulated_time >= budget_ns) {
 			printk(KERN_INFO "PID %d exceeded budget, forcing a reschedule!\n", prev->pid);
-			printk(KERN_INFO "PID %d: exec_accumulated_time: %llu, budget_ns: %llu\n", prev->pid, prev->reservation_data->exec_accumulated_time, budget_ns);
+			// printk(KERN_INFO "PID %d: exec_accumulated_time: %llu, budget_ns: %llu\n", prev->pid, prev->reservation_data->exec_accumulated_time, budget_ns);
 
 			// Set task state to TASK_UNINTERRUPTIBLE
 			prev->state = TASK_UNINTERRUPTIBLE;

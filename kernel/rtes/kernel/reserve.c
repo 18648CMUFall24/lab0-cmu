@@ -36,11 +36,16 @@ static const char *policy_names[] = {
     [FF] = "FF",
     [NF] = "NF",
     [BF] = "BF",
-    [WF] = "WF"
+    [WF] = "WF",
+    [LST] = "LST"
 };
 
 
 static spinlock_t policy_lock;
+static spinlock_t processors_lock;
+static spinlock_t reserved_tasks_list_lock;
+static DEFINE_MUTEX(bin_packing_mutex);
+
 
 uint32_t div_C_T(uint32_t C, uint32_t T)
 {
@@ -62,11 +67,9 @@ void initialize_processors(void) {
     }
 }
 
-
 // List to store reserved tasks
 static LIST_HEAD(reserved_tasks_list);
-// Mutex for tasks list
-static spinlock_t reserved_tasks_list_lock;
+
 // Node in the list
 struct task_node {
     struct task_struct *task; // Pointer to task_struct
@@ -123,6 +126,34 @@ bool turn_on_processor(int cpu) {
     }
 }
 
+
+void turn_off_unused_processors(void) {
+    int i;
+    int online_cpus = 0;
+
+    // Count the number of currently online CPUs
+    for (i = 0; i < MAX_PROCESSORS; i++) {
+        if (cpu_online(i)) {
+            online_cpus++;
+        }
+    }
+
+    // Turn off unused processors while keeping at least one online
+    for (i = 0; i < MAX_PROCESSORS; i++) {
+        if (processors[i].num_tasks == 0 && cpu_online(i)) {
+            if (online_cpus > 1) { // Ensure at least one CPU remains online
+                if (cpu_down(i) == 0) {
+                    printk(KERN_INFO "Processor %d successfully turned off\n", i);
+                    online_cpus--;
+                } else {
+                    printk(KERN_ERR "Failed to turn off processor %d\n", i);
+                }
+            } else {
+                printk(KERN_INFO "Processor %d remains online to ensure at least one active CPU\n", i);
+            }
+        }
+    }
+}
 
 struct reservation_data *create_reservation_data(struct task_struct *task) {
     struct reservation_data *res_data;
@@ -219,7 +250,6 @@ uint32_t utilization_bound(uint32_t n) {
 }
 
 
-
 static int response_time_test(struct timespec *c, struct timespec *t, int task_idx, int total_tasks, struct timespec *c_list, struct timespec *t_list) {
     uint64_t R_prev, R_curr, T_i, C_i, C_j, T_j, interference;
     int iteration, j;
@@ -314,9 +344,6 @@ int check_schedulability(int cpuid, struct timespec c, struct timespec t) {
             }
         }
     }
-    printk(KERN_INFO "num_task=%d\n", num_task);
-    
-
 
      // Perform UB Test and RT Test if necessary
     for (i = 0; i < num_task; i++) {
@@ -325,7 +352,7 @@ int check_schedulability(int cpuid, struct timespec c, struct timespec t) {
         U += div_C_T(C_i, T_i);
 
         UB = utilization_bound(i + 1);
-        printk(KERN_INFO "UB Test: Task %d, U=%u, UB=%u.\n", i + 1, U, UB);
+        printk(KERN_INFO "UB Test for cpu%d: Task %d, U=%u, UB=%u.\n", cpuid, i + 1, U, UB);
 
         if (U > UB) {
             // UB test fails; perform RT test
@@ -361,16 +388,22 @@ int find_best_processor(uint32_t util, enum partition_policy policy, struct time
     int best_processor = -1;
     int i;
     static int last_processor = 0;
+    uint32_t remaining_space, min_space_left = 1001, max_space_left = 0; // ala  min space over 100% utilization
+    uint32_t min_util = 1001;
 
-
+    printk(KERN_INFO "Finding best processor for task with util=%u, policy=%s\n", util, policy_names[policy]);
     switch (policy) {
         case FF: // First-Fit
             for (i = 0; i < MAX_PROCESSORS; i++) {
                 if (processors[i].running_util + util <= 1000) {
-                    return i;
-                    // if (check_schedulability(i, C, T) == 0) {
-                    //     return i;
-                    // }
+                    // printk(KERN_INFO "First-Fit: Processor %d selected, running_util=%u, util=%u\n",
+                    //        i, processors[i].running_util, util);
+                    // return i;
+                    if (check_schedulability(i, C, T) == 0) {
+                        printk(KERN_INFO "First-Fit: Processor %d selected, running_util=%u, util=%u\n",
+                           i, processors[i].running_util, util);
+                        return i;
+                    }
                 }
             }
             break;
@@ -380,44 +413,90 @@ int find_best_processor(uint32_t util, enum partition_policy policy, struct time
                 int idx = (last_processor + i) % MAX_PROCESSORS;    // Start from the last processor
                 if (processors[idx].running_util + util <= 1000) {
 
-                    last_processor = idx;
+                    // last_processor = idx;
+                    // printk(KERN_INFO "Next-Fit: Processor %d selected, running_util=%u, util=%u\n",
+                    //        idx, processors[idx].running_util, util);
+                    // return idx;
+                    if (check_schedulability(idx, C, T) == 0) {
+                        last_processor = idx;
+                        printk(KERN_INFO "Next-Fit: Processor %d selected, running_util=%u, util=%u\n",
+                           idx, processors[idx].running_util, util);
                         return idx;
-                    // if (check_schedulability(idx, C, T) == 0) {
-                    //     last_processor = idx;
-                    //     return idx;
-                    // }
+                    }
                 }
             }
             break;
 
         case BF: // Best-Fit
             for (i = 0; i < MAX_PROCESSORS; i++) {
-                if (processors[i].running_util + util <= 1000) {
-                    if (best_processor == -1 || processors[i].running_util < processors[best_processor].running_util) {
+                remaining_space = 1000 - processors[i].running_util;
+                if (remaining_space >= util) {
+                    if (remaining_space < min_space_left) {
+                            min_space_left = remaining_space;
                             best_processor = i;
-                        }
-                //    if (check_schedulability(i, C, T) == 0) {
-                //         if (best_processor == -1 || processors[i].running_util < processors[best_processor].running_util) {
-                //             best_processor = i;
-                //         }
-                //     }
-                }
-            }
-            return best_processor;
-
-        case WF: // Worst-Fit
-            for (i = 0; i < MAX_PROCESSORS; i++) {
-                if (processors[i].running_util + util <= 1000) {
-                     if (best_processor == -1 || processors[i].running_util > processors[best_processor].running_util) {
-                            best_processor = i;
-                        }
+                    }
                     // if (check_schedulability(i, C, T) == 0) {
-                    //     if (best_processor == -1 || processors[i].running_util > processors[best_processor].running_util) {
+                    //     if (remaining_space < min_space_left) {
+                    //         min_space_left = remaining_space;
                     //         best_processor = i;
                     //     }
                     // }
                 }
             }
+
+            if (best_processor != -1) {
+                printk(KERN_INFO "Best-Fit: Processor %d selected, running_util=%u, util=%u\n",
+                    best_processor, processors[best_processor].running_util, util);
+            } else {
+                printk(KERN_ERR "Best-Fit: No suitable processor found for util=%u\n", util);
+            }
+
+            return best_processor;
+
+        case WF: // Worst-Fit
+            for (i = 0; i < MAX_PROCESSORS; i++) {
+                remaining_space = 1000 - processors[i].running_util;
+                if (remaining_space >= util) {
+                    if (remaining_space > max_space_left) {
+                            max_space_left = remaining_space;
+                            best_processor = i;
+                    }
+                    // if (check_schedulability(i, C, T) == 0) {
+                    //     if (remaining_space > max_space_left) {
+                    //         max_space_left = remaining_space;
+                    //         best_processor = i;
+                    //     }
+                    // }
+                }
+            }
+
+            if (best_processor != -1) {
+                printk(KERN_INFO "Worst-Fit: Processor %d selected, running_util=%u, util=%u\n",
+                       best_processor, processors[best_processor].running_util, util);
+            } else {
+                printk(KERN_ERR "Worst-Fit: No suitable processor found for util=%u\n", util);
+            }
+
+            return best_processor;
+        case LST:
+            for (i = 0; i < MAX_PROCESSORS; i++) {
+                if (processors[i].running_util + util < 1001) {
+                    if (check_schedulability(i, C, T) == 0) {
+                        if (processors[i].running_util < min_util) {
+                            min_util = processors[i].running_util;
+                            best_processor = i;
+                        }
+                    }
+                }
+            }
+
+            if (best_processor != -1) {
+                printk(KERN_INFO "List-Scheduling: Processor %d selected, running_util=%u, util=%u\n",
+                    best_processor, processors[best_processor].running_util, util);
+            } else {
+                printk(KERN_ERR "List-Scheduling: No suitable processor found for util=%u\n", util);
+            }
+
             return best_processor;
 
         default:
@@ -425,21 +504,43 @@ int find_best_processor(uint32_t util, enum partition_policy policy, struct time
             return -1;
     }
 
+    printk(KERN_INFO "No suitable processor found for task with util=%u\n", util);
     return -1; // No processor can accommodate the task
+
+}
+
+void print_processor_info(int cpuid) {
+    struct bucket_task_ll *curr;
+    int task_count = 0;
+
+    printk(KERN_INFO "Processor %d Info:", cpuid);
+    printk(KERN_INFO "  Running Utilization: %u", processors[cpuid].running_util);
+    printk(KERN_INFO "  Number of Tasks: %d", processors[cpuid].num_tasks);
+
+    curr = processors[cpuid].first_task;
+    while (curr) {
+        printk(KERN_INFO "    Task %d: Util=%u, Cost=%lu.%09lu, Period=%lu.%09lu",
+               curr->task->pid, curr->util,
+               curr->cost.tv_sec, curr->cost.tv_nsec,
+               curr->period.tv_sec, curr->period.tv_nsec);
+        curr = curr->next;
+        task_count++;
+    }
+
+    if (task_count != processors[cpuid].num_tasks) {
+        printk(KERN_ERR "Processor %d task count mismatch! Expected %d, Found %d",
+               cpuid, processors[cpuid].num_tasks, task_count);
+    }
 }
 
 void add_task_to_processor(struct task_struct *task, struct timespec C, struct timespec T, int cpuid) {
     struct bucket_task_ll *new_task;
     uint32_t util = div_C_T(timespec_to_ns(&C), timespec_to_ns(&T));
-    int i;
+    // int i;
 
     turn_on_processor(cpuid); // Ensure the processor is online
 
     new_task = kmalloc(sizeof(*new_task), GFP_KERNEL);
-    if (!new_task) {
-        printk(KERN_ERR "Failed to allocate memory for task in processor %d\n", cpuid);
-        return -ENOMEM;
-    }
 
     new_task->task = task;
     new_task->util = util;
@@ -452,13 +553,21 @@ void add_task_to_processor(struct task_struct *task, struct timespec C, struct t
     processors[cpuid].num_tasks++;
 
     printk(KERN_INFO "Task %d added to processor %d. Utilization: %u\n", task->pid, cpuid, util);
+    print_processor_info(0);
+    print_processor_info(1);
+    print_processor_info(2);
+    print_processor_info(3);
 }
 
 // Remove task from processor bucket
 void remove_task_from_processor(struct task_struct *task) {
     int i;
+    struct bucket_task_ll *curr, *prev;
     for (i = 0; i < MAX_PROCESSORS; i++) {
-        struct bucket_task_ll *prev = NULL, *curr = processors[i].first_task;
+        spin_lock(&processors_lock); // Protect access to processors array
+        prev = NULL;
+        curr = processors[i].first_task;
+        printk(KERN_DEBUG "Checking processor %d for task %d\n", i, task->pid);
 
         while (curr) {
             if (curr->task == task) {
@@ -474,9 +583,11 @@ void remove_task_from_processor(struct task_struct *task) {
                 processors[i].num_tasks--;
                 kfree(curr);
                 printk(KERN_INFO "Task %d removed from processor %d\n", task->pid, i);
+                spin_unlock(&processors_lock);
 
                 // Check if processor is now unused and turn it off
                 if (processors[i].num_tasks == 0) {
+                    printk(KERN_INFO "Processor %d is now unused. Attempting to turn off.\n", i);
                     if (i != 0 && cpu_online(i)) { // Keep processor 0 always online
                         if (cpu_down(i)) {
                             printk(KERN_ERR "Failed to bring processor %d offline\n", i);
@@ -485,11 +596,17 @@ void remove_task_from_processor(struct task_struct *task) {
                         }
                     }
                 }
+                // turn_off_unused_processors()
+                print_processor_info(0);
+                print_processor_info(1);
+                print_processor_info(2);
+                print_processor_info(3);
                 return;
             }
             prev = curr;
             curr = curr->next;
         }
+        spin_unlock(&processors_lock);
     }
     printk(KERN_ERR "Task %d not found in any processor bucket\n", task->pid);
 }
@@ -520,28 +637,44 @@ SYSCALL_DEFINE4(set_reserve, pid_t, pid, struct timespec __user *, C, struct tim
     // util (1000)
     util = div_C_T(timespec_to_ns(&c), timespec_to_ns(&t));
 
+
     if (cpuid == -1) { 
         // Handle bin-packing case
+        mutex_lock(&bin_packing_mutex);
         processor_id = find_best_processor(util, current_policy, c, t); 
         if (processor_id < 0) {
+            // spin_unlock(&processors_lock);
             printk(KERN_ERR "Task %d cannot be assigned to any processor.\n", pid);
+            mutex_unlock(&bin_packing_mutex);
             return -EBUSY;
         }
-        printk(KERN_INFO "Task %d assigned to processor %d\n", pid, processor_id);
+        // if (processor_id >= 0) {
+        //     add_task_to_processor(task, C, T, processor_id);
+        // }
+        mutex_unlock(&bin_packing_mutex);
+        printk(KERN_INFO "Bin packing: Task %d assigned to processor %d\n", pid, processor_id);
     } else if (cpuid < -1|| cpuid >= MAX_PROCESSORS) {
+        // spin_unlock(&processors_lock);
         return -EINVAL; // Invalid CPU ID
     } else {
         processor_id = cpuid; // Single processor specified
+        spin_lock(&processors_lock);
         // Check schedulability before adding
-        // if (check_schedulability(processor_id, c, t) < 0){
-        //     return -EBUSY;
-        // }
+        if (check_schedulability(processor_id, c, t) < 0){
+            spin_unlock(&processors_lock);
+            printk(KERN_ERR "Task %d cannot be assigned to processor %d.\n", pid, processor_id);
+            return -EBUSY;
+        }
+        spin_unlock(&processors_lock);
     }
-
-    // Check schedulability before adding
-    if (check_schedulability(processor_id, c, t) < 0){
-        return -EBUSY;
-    }
+    // spin_lock(&processors_lock);
+    // // Check schedulability before adding
+    // if (check_schedulability(processor_id, c, t) < 0){
+    //     spin_unlock(&processors_lock);
+    //     printk(KERN_ERR "Task %d cannot be assigned to processor %d.\n", pid, processor_id);
+    //     return -EBUSY;
+    // }
+    // spin_unlock(&processors_lock);
 
 
     // retrieve the task struct
@@ -607,7 +740,9 @@ SYSCALL_DEFINE4(set_reserve, pid_t, pid, struct timespec __user *, C, struct tim
     }
     
     // Add task to the processor
+    spin_lock(&processors_lock);
     add_task_to_processor(task, c, t, processor_id);
+    spin_unlock(&processors_lock);
     
     // initialize a high resolution timer trigger periodically T units
     hrtimer_init(&res_data->reservation_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
@@ -657,7 +792,12 @@ SYSCALL_DEFINE1(cancel_reserve, pid_t, pid) {
     }
 
     // cancel hrtimer
-    hrtimer_cancel(&res_data->reservation_timer);
+    if (hrtimer_active(&res_data->reservation_timer)) {
+        int ret = hrtimer_cancel(&res_data->reservation_timer);
+        if (ret < 0) {
+            printk(KERN_WARNING "cancel_reserve: Failed to cancel hrtimer for PID %d\n", task->pid);
+        }
+    }
 
     // clear up reservation parameters
     res_data->reserve_C = (struct timespec){0, 0};
@@ -860,7 +1000,7 @@ static int create_partition_policy_file(void)
 static int __init init_reserve(void)
 {
     int ret;
-
+    initialize_processors();
     ret = create_reserves_file();
     if (ret != 0) {
         printk(KERN_ERR "Failed to create reserves file\n");
@@ -869,6 +1009,7 @@ static int __init init_reserve(void)
 
     // Initialize the spinlock for the reserved tasks list
     spin_lock_init(&reserved_tasks_list_lock);
+    spin_lock_init(&processors_lock);
 
     return 0; // Success
 }
